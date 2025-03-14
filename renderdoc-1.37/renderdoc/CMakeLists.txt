@@ -662,8 +662,8 @@ if(ANDROID)
         set(RDOC_LINK_FLAGS "${RDOC_LINK_FLAGS} -fsanitize=address")
     endif()
     set_target_properties(renderdoc PROPERTIES LINK_FLAGS "${RDOC_LINK_FLAGS}")
-    # rename output library
-    set_target_properties(renderdoc PROPERTIES OUTPUT_NAME "VkLayer_GLES_RenderDoc")
+    # rename output library  WEN : VkLayer_GLES_RenderDoc --> vkEGL
+    set_target_properties(renderdoc PROPERTIES OUTPUT_NAME "vkEGL") 
 
     if(STRIP_ANDROID_LIBRARY AND ANDROID_STRIP_TOOL AND RELEASE_MODE)
         add_custom_command(TARGET renderdoc POST_BUILD

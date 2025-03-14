@@ -1246,10 +1246,10 @@ struct AndroidController : public IDeviceProtocolHandler
 
       rdcstr folderName = Android::GetFolderName(deviceID);
 
-      // push settings file into our folder
-      Android::adbExecCommand(deviceID, "push \"" + FileIO::GetAppFolderFilename("renderdoc.conf") +
-                                            "\" /sdcard/Android/" + folderName + package +
-                                            "/files/renderdoc.conf");
+      // push settings file into our folder WEN : 注释掉这行代码，不再推送renderdoc.conf文件
+      // Android::adbExecCommand(deviceID, "push \"" + FileIO::GetAppFolderFilename("renderdoc.conf") +
+      //                                       "\" /sdcard/Android/" + folderName + package +
+      //                                       "/files/renderdoc.conf");
 
       // launch the last ABI, as the 64-bit version where possible, or 32-bit version where not.
       // Captures are portable across bitness and in some cases a 64-bit capture can't replay on a

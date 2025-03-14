@@ -500,6 +500,7 @@ MainWindow::MainWindow(ICaptureContext &ctx) : QMainWindow(NULL), ui(new Ui::Mai
   ui->extension_dummy_Help->setVisible(false);
 
   RegisterShortcut("ALT+R", this, [this](QWidget *) { contextChooser->click(); });
+  RegisterShortcut("ALT+D", this, [this](QWidget *) { showDiagnosticLogView(); });// WEN
 }
 
 MainWindow::~MainWindow()
