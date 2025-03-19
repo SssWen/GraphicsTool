@@ -444,7 +444,7 @@ void RenderDoc::Initialise()
     Process::ApplyEnvironmentModification();
 
     uint32_t port = RenderDoc_FirstTargetControlPort;
-
+    RDCLOG("WEN: Create ServerSocket");
     Network::Socket *sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
 
     while(sock == NULL)
@@ -455,7 +455,7 @@ void RenderDoc::Initialise()
         m_RemoteIdent = 0;
         break;
       }
-
+      RDCLOG("WEN: sock %d",port);
       sock = Network::CreateServerSocket("0.0.0.0", port & 0xffff, 4);
     }
 
@@ -484,9 +484,10 @@ void RenderDoc::Initialise()
     FileIO::GetDefaultFiles(base, capture_filename, m_LoggingFilename, m_Target);
 
     if(m_CaptureFileTemplate.empty())
-      SetCaptureFileTemplate(capture_filename);
-
-    RDCLOGFILE(m_LoggingFilename.c_str());
+        SetCaptureFileTemplate(capture_filename);
+    //RDCLOG("WEN: logfile ---  %s", m_LoggingFilename.c_str());
+    RDCLOG("WEN: logfile ---  ");
+    RDCLOGFILE(m_LoggingFilename.c_str()); //WEN TODO: охв╒ймоб
   }
 
   const char *platform =

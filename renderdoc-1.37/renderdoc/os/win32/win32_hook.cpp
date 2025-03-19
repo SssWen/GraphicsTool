@@ -930,6 +930,7 @@ void LibraryHooks::BeginHookRegistration()
 // some of these hooks (as above) will hook LoadLibrary/GetProcAddress, to protect
 void LibraryHooks::EndHookRegistration()
 {
+  RDCLOG("win32_Hook: EndHookRegistration");
   for(auto it = s_HookData->DllHooks.begin(); it != s_HookData->DllHooks.end(); ++it)
     std::sort(it->second.FunctionHooks.begin(), it->second.FunctionHooks.end());
 

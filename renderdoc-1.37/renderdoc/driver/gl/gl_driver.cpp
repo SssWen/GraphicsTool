@@ -2003,6 +2003,7 @@ void WrappedOpenGL::RefreshDerivedReplacements()
 
 void WrappedOpenGL::SwapBuffers(WindowingSystem winSystem, void *windowHandle)
 {
+  RDCLOG("WEN: gl_driver SwapBuffers Success!----------");
   if(IsBackgroundCapturing(m_State))
     RenderDoc::Inst().Tick();
 
@@ -2136,8 +2137,8 @@ void WrappedOpenGL::SwapBuffers(WindowingSystem winSystem, void *windowHandle)
         overlayText += StringFormat::Fmt("Failed capture at frame %d:\n", m_FailedFrame);
         overlayText += StringFormat::Fmt("    %s\n", reasonString);
       }
-
-      RenderText(0.0f, 0.0f, overlayText);
+      overlayText += "  JerryWen "; // WEN delete
+      RenderText(0.0f, 0.0f, overlayText); // WEN: 手机上显示的文字信息
 
       // swallow all errors we might have inadvertantly caused. This is
       // better than letting an error propagate and maybe screw up the

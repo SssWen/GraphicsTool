@@ -507,7 +507,7 @@ void RenderDoc::ProcessConfig()
     if(success)
       FileIO::Move(confFile + ".tmp", confFile, true);
   }
-
+  RDCLOG("WEN: Loading config END");
   // delete the loaded config if we have it
   delete loadedConfig;
 }

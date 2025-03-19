@@ -330,7 +330,7 @@ AndroidVersionCheckResult CheckAndroidServerVersion(const rdcstr &deviceID, ABI 
   rdcstr hostVersionName = GitVersionHash;
 
   // False positives will hurt us, so check for explicit matches
-  if((hostVersionCode == versionCode) && (hostVersionName == versionName))
+  if((hostVersionCode == versionCode))// && (hostVersionName == versionName)) //WEN : do not check git hash 
   {
     RDCLOG("Installed server version (%s:%s) is compatible", versionCode.c_str(),
            versionName.c_str());
@@ -1388,9 +1388,10 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
 
     rdcstr info;
 
-    if(Android::SupportsNativeLayers(m_deviceID))
+    if(Android::SupportsNativeLayers(m_deviceID))// android10以上 采用原生GPU层方式
     {
       RDCLOG("Using Android 10 native GPU layering");
+      RDCLOG("当前手机系统为android10+,采用原生GPU层方式，先禁用JDWP,如何没有开启相关layer设置，在尝试使用JDWP Hook");
 
       // if we have Android 10 native layering, don't use JDWP hooking
       hookWithJDWP = false;
@@ -1463,7 +1464,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
 
         RDCERR("Couldn't verify that debug settings are set:\n%s\n%s", inString.c_str(),
                info.c_str());
-
+        RDCLOG("WEN: android10+ 但是未开启 enbale_gpu_debug_layers, gpu_debug_app等设置，回退JDWP Hook 模式");
         hookWithJDWP = true;
 
         // need to tell the hooks to ignore the fact that layers are present because they're not
@@ -1472,8 +1473,9 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       }
     }
 
-    if(hookWithJDWP)
+    if(hookWithJDWP)// android9以下 采用JDWP注入方式
     {
+      RDCLOG("Anroid10以下 不支持GPU layering方式，以下尝试使用 JDWP 注入方式");
       RDCLOG("Using pre-Android 10 Vulkan layering and JDWP injection");
 
       // enable the vulkan layer (will only be used by vulkan programs)
@@ -1532,10 +1534,12 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       RDCLOG("No library found in %s/lib/*/" RENDERDOC_ANDROID_LIBRARY
              " for %s - assuming injection is required.",
              installedPath.c_str(), packageName.c_str());
+      RDCLOG("apk目录 %s/lib/ 下 没有找到libvkEGL.so, 后面需要再次注入so ", installedPath.c_str());
     }
     else
     {
       hookWithJDWP = false;
+      RDCLOG("在apk目录lib文件夹下:( %s ) 找到 libvkEGL.so, 不需要再次注入 so!", RDCLib.c_str());
       RDCLOG("Library found, no injection required: %s", RDCLib.c_str());
     }
 
@@ -1547,7 +1551,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
     if(hookWithJDWP)
     {
       RDCLOG("Setting up to launch the application as a debugger to inject.");
-
+      RDCLOG("WEN: Hook with JDWP 策略 使用命令 adb shell am start -S -D -n 启动apk并立马暂停，等待注入so");
       // start the activity in this package with debugging enabled and force-stop after starting
       Android::adbExecCommand(
           m_deviceID, StringFormat::Fmt("shell am start -S -D -n %s/%s %s", packageName.c_str(),
@@ -1568,7 +1572,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
 
     // adb shell ps | grep $PACKAGE | awk '{print $2}')
     pid = Android::GetCurrentPID(m_deviceID, processName);
-
+    RDCLOG("查找apk 进程PID = %d .方便注入",pid);
     if(pid == 0)
     {
       result = RDResult(ResultCode::InjectionFailed);
@@ -1592,14 +1596,14 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
 
     // sleep a little to let the ports initialise
     Threading::Sleep(500);
-
+    RDCLOG("WEN: jdwpPort: %d,  pid: %d", jdwpPort, pid);
     if(jdwpPort)
     {
       // use a JDWP connection to inject our libraries
       bool injected = Android::InjectWithJDWP(m_deviceID, jdwpPort);
       if(!injected)
       {
-        RDCERR("Failed to inject using JDWP");
+        RDCERR("JDWP注入失败：Failed to inject using JDWP");
         ident = 0;
         result = RDResult(ResultCode::JDWPFailure);
         result.message = StringFormat::Fmt(

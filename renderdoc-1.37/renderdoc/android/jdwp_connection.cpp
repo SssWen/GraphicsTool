@@ -564,6 +564,7 @@ void Connection::SetLocalValue(threadID thread, frameID frame, int32_t slot, val
 value Connection::InvokeInstance(threadID thread, classID clazz, methodID method, objectID object,
                                  const rdcarray<value> &arguments, InvokeOptions options)
 {
+  RDCLOG("WEN: JDWP inject libvkEGL.so. jdwp_connection::InvokeInstance");
   Command cmd;
   CommandData data = cmd.GetData();
 

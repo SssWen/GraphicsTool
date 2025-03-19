@@ -454,7 +454,7 @@ public:
   int32_t GetForwardedPortSlot() { return Atomic::Inc32(&m_PortSlot); }
   void RegisterShutdownFunction(ShutdownFunction func);
   void SetReplayApp(bool replay) { m_Replay = replay; }
-  bool IsReplayApp() const { return m_Replay; }
+  bool IsReplayApp() const { return m_Replay; }//是否处于回放模式,capture的时候是true，其他时间默认是false
   void BecomeRemoteServer(const rdcstr &listenhost, uint16_t port, RENDERDOC_KillCallback killReplay,
                           RENDERDOC_PreviewWindowCallback previewWindow);
 

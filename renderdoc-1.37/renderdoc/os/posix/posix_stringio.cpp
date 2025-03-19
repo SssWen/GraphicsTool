@@ -519,7 +519,7 @@ LogFileHandle *logfile_open(const rdcstr &filename)
 {
   int fd = open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | O_NOFOLLOW,
                 S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-
+  RDCLOG("»’÷æ'%s'", filename.c_str());
   if(fd < 0)
   {
     RDCWARN("Couldn't open logfile '%s': %d", filename.c_str(), (int)errno);

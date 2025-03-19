@@ -65,7 +65,11 @@ struct DisplayConfig
 class EGLHook : LibraryHook
 {
 public:
-  EGLHook() : driver(GetEGLPlatform()) {}
+  EGLHook() : driver(GetEGLPlatform())
+  {
+    RDCLOG("EGLHook instance created");
+    RegisterHooks();
+  }
   ~EGLHook()
   {
     for(auto it : extStrings)
@@ -562,7 +566,7 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglSwapBuffers_renderdoc_hooked(EGLDisplay dp
 
     eglhook.driver.SwapBuffers(cfg.system, cfg.wnd);
   }
-
+  //调用原始函数并清理
   {
     eglhook.swapping = true;
     EGLBoolean ret = EGL.SwapBuffers(dpy, surface);
@@ -1037,6 +1041,11 @@ bool ShouldHookEGL()
 
 bool ShouldHookEGL()
 {
+  RDCLOG("WEN: enforce used EGL hooks.dlopen libEGL.so");
+  return true;
+  // todo: WEN android9 还是要走这个流程
+  //RDCLOG("WEN: Android10+ Disabling EGL hooks - USE EGL_ANDROID_GLES_layers ");
+  RDCLOG("WEN: 进行判断是否可以进行 EGL hooks.dlopen libEGL.so");
   void *egl_handle = dlopen("libEGL.so", RTLD_LAZY);
   PFN_eglQueryString query_string = (PFN_eglQueryString)dlsym(egl_handle, "eglQueryString");
   if(!query_string)
@@ -1059,7 +1068,7 @@ bool ShouldHookEGL()
     RDCLOG("EGL_ANDROID_GLES_layers detected, disabling EGL hooks - GLES layering in effect");
     return false;
   }
-
+  RDCLOG("WEN: 初步判断可以进行 EGL hooks.");
   return true;
 }
 
@@ -1077,14 +1086,14 @@ void EGLHook::RegisterHooks()
   if(!ShouldHookEGL())
     return;
 
+  RDCLOG("WEN 强制使用EGL Hooks");
   RDCLOG("Registering EGL hooks");
 
 #if ENABLED(RDOC_WIN32)
 #define LIBSUFFIX ".dll"
 #else
 #define LIBSUFFIX ".so"
-#endif
-
+#endif  
   // register library hooks
   LibraryHooks::RegisterLibraryHook("libEGL" LIBSUFFIX, &EGLHooked);
   LibraryHooks::RegisterLibraryHook("libEGL" LIBSUFFIX ".1", &EGLHooked);
@@ -1112,8 +1121,9 @@ void EGLHook::RegisterHooks()
       "libEGL" LIBSUFFIX,                                     \
       FunctionHook("egl" STRINGIZE(func), (void **)&EGL.func, \
                                    (void *)&CONCAT(egl, CONCAT(func, _renderdoc_hooked))));
-  EGL_HOOKED_SYMBOLS(EGL_REGISTER)
+  EGL_HOOKED_SYMBOLS(EGL_REGISTER)      
 #undef EGL_REGISTER
+  RDCLOG("WEN: ENABLED(RDOC_WIN32) RegisterLibraryHook-----END");
 }
 
 // Android GLES layering support
@@ -1125,6 +1135,7 @@ typedef __eglMustCastToProperFunctionPointerType(EGLAPIENTRY *PFNEGLGETNEXTLAYER
 HOOK_EXPORT void AndroidGLESLayer_Initialize(void *layer_id,
                                              PFNEGLGETNEXTLAYERPROCADDRESSPROC next_gpa)
 {
+  RDCLOG("WEN: Renderdoc 使用 GLESLayerHook 方式, AndroidGLESLayer_Initialize 函数被调用");
   RDCLOG("Initialising Android GLES layer with ID %p", layer_id);
 
   // as a hook callback this is only called while capturing
@@ -1148,6 +1159,7 @@ HOOK_EXPORT void AndroidGLESLayer_Initialize(void *layer_id,
 HOOK_EXPORT void *AndroidGLESLayer_GetProcAddress(const char *funcName,
                                                   __eglMustCastToProperFunctionPointerType next)
 {
+  RDCLOG("WEN: Renderdoc 使用 GLESLayerHook 方式, AndroidGLESLayer_GetProcAddress 函数被调用");
 // return our egl hooks
 #define GPA_FUNCTION(name, isext, replayrequired) \
   if(!strcmp(funcName, "egl" STRINGIZE(name)))    \

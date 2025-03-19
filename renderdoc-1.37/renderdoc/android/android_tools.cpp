@@ -319,7 +319,7 @@ Process::ProcessResult execCommand(const rdcstr &exe, const rdcstr &args, const 
 {
   if(!silent)
     RDCLOG("COMMAND: %s '%s'", exe.c_str(), args.c_str());
-
+  RDCLOG("WEN:COMMAND: %s '%s' '%s'", exe.c_str(), workDir.c_str(), args.c_str());
   Process::ProcessResult result;
   Process::LaunchProcess(exe, workDir, args, true, &result);
   return result;

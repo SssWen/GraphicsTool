@@ -158,6 +158,7 @@ bool InjectLibraries(const rdcstr &deviceID, Network::Socket *sock)
   }
 
   RDCLOG("Injecting RenderDoc from library in %s", libPath.c_str());
+  RDCLOG("将位于 %s 的 so 注入", libPath.c_str());
 
   if(conn.IsErrored())
     return false;
@@ -424,7 +425,7 @@ bool InjectLibraries(const rdcstr &deviceID, Network::Socket *sock)
     RDCERR("Failed to call load(%s/%s)!", libPath.c_str(), RENDERDOC_ANDROID_LIBRARY);
     return false;
   }
-
+  RDCLOG("WEN: JDWP 线程注入成功: (%s/%s)", libPath.c_str(), RENDERDOC_ANDROID_LIBRARY);
   return true;
 }
 };    // namespace JDWP
@@ -437,6 +438,7 @@ bool InjectWithJDWP(const rdcstr &deviceID, uint16_t jdwpport)
 
   if(sock)
   {
+    RDCLOG("WEN : 开始注入 InjectLibraries Begin: JDWPpoort: %d",jdwpport);
     bool ret = JDWP::InjectLibraries(deviceID, sock);
     delete sock;
 
@@ -445,6 +447,7 @@ bool InjectWithJDWP(const rdcstr &deviceID, uint16_t jdwpport)
   else
   {
     RDCERR("Couldn't make JDWP connection");
+    RDCERR("WEN: JDWP connection 失败 ");
   }
 
   return false;

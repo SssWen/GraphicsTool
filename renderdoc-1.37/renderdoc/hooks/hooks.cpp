@@ -34,16 +34,18 @@ static rdcarray<LibraryHook *> &LibList()
 
 LibraryHook::LibraryHook()
 {
-  LibList().push_back(this);
+  RDCLOG("WEN: LibraryHook Init ---------");
+  LibList().push_back(this);//构造函数，每个 LibraryHook 子类的实例在构造时，自动将自身添加到全局列表 LibList() 中
 }
 
 void LibraryHooks::RegisterHooks()
 {
+  RDCLOG("WEN: RegisterHooks ---------Begin");   
   BeginHookRegistration();
 
   for(LibraryHook *lib : LibList())
     lib->RegisterHooks();
-
+  RDCLOG("WEN: RegisterHooks ---------End");
   EndHookRegistration();
 }
 

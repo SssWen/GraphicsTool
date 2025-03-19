@@ -2399,6 +2399,8 @@ void MainWindow::on_action_About_triggered()
 {
   AboutDialog about(this);
   RDDialog::show(&about);
+  // 点击 About，同时打开log
+  showDiagnosticLogView(); // wen
 }
 
 void MainWindow::on_action_Mesh_Output_triggered()

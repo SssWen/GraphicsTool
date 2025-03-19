@@ -48,3 +48,7 @@ qrenderdoc/3rdparty/pyside
 .DS_Store
 plugins-*/
 __pycache__
+x64/
+build_android/
+build_android64/
+

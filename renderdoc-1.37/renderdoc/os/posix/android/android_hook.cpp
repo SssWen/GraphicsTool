@@ -225,6 +225,7 @@ void *intercept_dlopen(const char *filename, int flag)
     if(strstr(filename, RENDERDOC_ANDROID_LIBRARY) || GetHookInfo().IsLibHook(rdcstr(filename)))
     {
       HOOK_DEBUG_PRINT("Intercepting dlopen for %s", filename);
+      RDCLOG("WEN: dlopen %s  ", rdcstr(RENDERDOC_ANDROID_LIBRARY).c_str());
       return dlopen(RENDERDOC_ANDROID_LIBRARY, flag);
     }
   }
@@ -448,17 +449,20 @@ extern "C" __attribute__((visibility("default"))) void *hooked_dlopen(const char
 {
   // get caller address immediately.
   const void *caller_addr = __builtin_return_address(0);
-
+  RDCLOG("WEN: 本地hooked_dlopen");// 替换系统原本的'dlopen',当系统调用dlopen时候，实际执行的是这个钩子函数
+  RDCLOG("WEN: hooked_dlopen for %s | %d", filename, flag);// 替换系统原本的'dlopen',当系统调用dlopen时候，实际执行的是这个钩子函数
   HOOK_DEBUG_PRINT("hooked_dlopen for %s | %d", filename, flag);
+
+  // 1. 检查是否需要拦截（如替换为 RenderDoc 自身库）
   void *ret = intercept_dlopen(filename, flag);
 
   // if we intercepted, return immediately
   if(ret)
     return ret;
-
+  // 2. 调用原始 dlopen 加载目标库
   ret = loader_dlopen(filename, flag, caller_addr);
   HOOK_DEBUG_PRINT("Got %p", ret);
-
+  // 3. 处理新加载的库（如修改 PLT/GOT 表）
   if(filename && ret)
     process_dlopen(filename, flag);
 
@@ -468,6 +472,7 @@ extern "C" __attribute__((visibility("default"))) void *hooked_dlopen(const char
 extern "C" __attribute__((visibility("default"))) void *hooked_android_dlopen_ext(
     const char *__filename, int __flags, const android_dlextinfo *__info)
 {
+  RDCLOG("WEN: hooked_android_dlopen_ext for %s | %d", __filename, __flags);
   HOOK_DEBUG_PRINT("hooked_android_dlopen_ext for %s | %d", __filename, __flags);
 
   void *ret = intercept_dlopen(__filename, __flags);
@@ -537,7 +542,8 @@ static void InstallHooksCommon()
 
   if(loader_dlopen)
   {
-    LibraryHooks::RegisterFunctionHook("", FunctionHook("dlopen", NULL, (void *)&hooked_dlopen));
+    RDCLOG("钩子注册： 将 dlopen 的符号指向 android_hook的 hooked_dlopen。");
+    LibraryHooks::RegisterFunctionHook("", FunctionHook("dlopen", NULL, (void *)&hooked_dlopen));    
   }
   else
   {
@@ -699,6 +705,7 @@ void LibraryHooks::ReplayInitialise()
 void LibraryHooks::BeginHookRegistration()
 {
   // nothing to do
+  RDCLOG("WEN: android_hook-BeginHookRegistration");
 }
 
 void LibraryHooks::RegisterFunctionHook(const char *libraryName, const FunctionHook &hook)
@@ -728,15 +735,15 @@ void LibraryHooks::IgnoreLibrary(const char *libraryName)
 
 void LibraryHooks::EndHookRegistration()
 {
-  HOOK_DEBUG_PRINT("EndHookRegistration");
-
+  RDCLOG("Android_Hook : EndHookRegistration");
+  RDCLOG("WEN: android_hook -----------EndHookRegistration");
   // ensure we load all libraries we can immediately, so they are immediately hooked and don't get
   // loaded later.
   rdcarray<rdcstr> libs = GetHookInfo().GetLibHooks();
   for(const rdcstr &lib : libs)
   {
     void *handle = dlopen(lib.c_str(), RTLD_GLOBAL);
-    HOOK_DEBUG_PRINT("%s: %p", lib.c_str(), handle);
+    HOOK_DEBUG_PRINT("%s: %p", lib.c_str(), handle);// android 相关的libs
   }
 
   // try to prevent the library from being unloaded, increment our dlopen refcount (might not work

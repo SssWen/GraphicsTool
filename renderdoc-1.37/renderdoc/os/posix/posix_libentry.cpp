@@ -31,6 +31,7 @@ void ResetHookingEnvVars();
 // DllMain equivalent
 void library_loaded()
 {
+  RDCLOG("WEN: so注入成功，构造函数初始化: library_loaded-----------");
   if(LibraryHooks::Detect(STRINGIZE(RDOC_BASE_NAME) "__replay__marker"))
   {
     RDCDEBUG("Not creating hooks - in replay app");
@@ -45,6 +46,7 @@ void library_loaded()
   }
   else
   {
+    RDCLOG("WEN: RenderDoc::Inst().Initialise(); -----------");
     RenderDoc::Inst().Initialise();
 
     ResetHookingEnvVars();
@@ -71,9 +73,9 @@ void library_loaded()
     FileIO::GetExecutableFilename(curfile);
 
     RDCLOG("Loading into %s", curfile.c_str());
-
+    RDCLOG("WEN: RegisterHooks Begin----------");
     LibraryHooks::RegisterHooks();
-
+    RDCLOG("WEN: RegisterHooks End----------");
     // we have a short sleep here to allow target control to connect, since unlike windows we can't
     // suspend the process during startup.
     Threading::Sleep(15);
@@ -85,7 +87,7 @@ void library_loaded()
 // should run first
 struct init
 {
-  init() { library_loaded(); }
+  init() { library_loaded(); }// 构造函数强制初始化
 } do_init;
 
 // we want to be sure the constructor and library_loaded are included even when this is in a static
