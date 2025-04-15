@@ -1,4 +1,4 @@
-# [Zygisk-MyInjector](https://github.com/jiqiu2022/Zygisk-MyInjector)
+# [Zygisk-Injector](https://github.com/jiqiu2022/Zygisk-MyInjector)
 
 
 我会初步进行框架层面的hook进行隐藏，进一步使用自定义linker来伪装成系统库的加载。
