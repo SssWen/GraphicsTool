@@ -1,0 +1,9 @@
+ext {
+    moduleLibraryName = "RenderDocInjector"
+    magiskModuleId = "Zygisk_Injector"
+    moduleName = "RenderDocInjector"
+    moduleAuthor = "JerryWen"
+    moduleDescription = "注入renderdoc,配置文件放置在/data/local/tmp/renderdoc.cfg"
+    moduleVersion = "v0.05"
+    moduleVersionCode = 1
+}
