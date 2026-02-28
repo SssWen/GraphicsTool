@@ -34,7 +34,7 @@ public:
 //        if (strcmp(package_name, AimPackageName) == 0){
 //            args->runtime_flags=8451;
 //        }
-        LOGI("WEN : preAppSpecialize %s %s %d", package_name, app_data_dir,args->runtime_flags);
+        LOGI("preAppSpecialize %s %s %d", package_name, app_data_dir,args->runtime_flags);
 
         preSpecialize(package_name, app_data_dir);
         env->ReleaseStringUTFChars(args->nice_name, package_name);
@@ -51,10 +51,10 @@ public:
 private:
     Api *api;
     JNIEnv *env;
-    bool enable_hack;
-    char *_data_dir;
-    void *data;
-    size_t length;
+    bool enable_hack = false;
+    char *_data_dir = nullptr;
+    void *data= nullptr;
+    size_t length = 0;
 
     // 加载配置文件
     bool loadConfig(const char* configPath) {
@@ -66,7 +66,6 @@ private:
         // 修改文件权限
         system("su -c 'chmod 666 /data/local/tmp/renderdoc.cfg'");
         std::ifstream configFile(configPath);
-
         if (!configFile.is_open()) {
             LOGW("Failed to open config file: %s", configPath);
             return false;
@@ -90,25 +89,36 @@ private:
         //|| strcmp(package_name, AimPackageName1) == 0 || strcmp(package_name, AimPackageName2) == 0 || strcmp(package_name, AimPackageName3) == 0 || strcmp(package_name, AimPackageName4) == 0) 
         // if (strcmp(package_name, AimPackageName) == 0 )
 
-        bool is_load = loadConfig("/data/local/tmp/renderdoc.cfg"); // 配置文件路径
-        if (!is_load) {
-            LOGI("Failed to load config file");
-            return;
+        // 只在第一次加载配置文件（避免重复加载和权限问题）
+        if (allowedPackages.empty()) {
+            bool is_load = loadConfig("/data/local/tmp/renderdoc.cfg");
+            if (!is_load) {
+                LOGW("⚠️ Failed to load config file");
+            } else {
+                LOGI("📋 Config loaded, %zu packages in whitelist", allowedPackages.size());
+            }
         }
+        
+        // 检查是否包含冒号（子进程标识）
+        bool is_main_process = (strchr(package_name, ':') == nullptr);
+        
+        // 改为前缀匹配，支持子进程（如 com.example.app:service）
         bool is_allowed = std::any_of(allowedPackages.begin(), allowedPackages.end(),[package_name](const std::string& pkg) {
-            return pkg == package_name;
+            // 检查包名是否以白名单中的包名开头
+            return strncmp(package_name, pkg.c_str(), pkg.length()) == 0 &&
+                   (package_name[pkg.length()] == '\0' || package_name[pkg.length()] == ':');
         });
-        // bool is_allowedAlways = std::any_of(allowedPackages.begin(), allowedPackages.end(),[package_name](const std::string& pkg) {
-        //     return pkg == AimPackageName0;
-        // });
-        // if (is_allowedAlways)
-        // {
-        //     is_allowed = true;
-        //     LOGI("暴力设置: %s", package_name);
-        // }        
-        if (is_allowed)
+        
+        // 添加详细调试日志
+        LOGD("🔍 Process: %s | Main: %s | Allowed: %s", 
+             package_name, 
+             is_main_process ? "YES" : "NO",
+             is_allowed ? "YES" : "NO");
+        
+        // 只注入主进程（RenderDoc 通常只需要在主进程中运行）
+        if (is_allowed && is_main_process)
         {
-            LOGI("成功找到目标进程: %s", package_name);
+            LOGI("✅ 成功找到目标主进程: %s", package_name);
             enable_hack = true;
             _data_dir = new char[strlen(app_data_dir) + 1];
             strcpy(_data_dir, app_data_dir);
@@ -120,6 +130,8 @@ private:
             auto path = "zygisk/arm64-v8a.so";
 #endif
 #if defined(__i386__) || defined(__x86_64__)
+            // 这段代码只在 x86 模拟器上执行
+            // 真机 ARM 设备不会进入这里
             int dirfd = api->getModuleDir();
             int fd = openat(dirfd, path, O_RDONLY);
             if (fd != -1) {
@@ -135,7 +147,11 @@ private:
 #endif
         } else {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
-            LOGW("package 不在白名单上: %s", package_name);
+            if (!is_allowed) {
+                LOGD("⏭️ 跳过: %s (不在白名单)", package_name);
+            } else if (!is_main_process) {
+                LOGI("⏭️ 跳过子进程: %s (只注入主进程)", package_name);
+            }
             enable_hack = false;
         }
     }
