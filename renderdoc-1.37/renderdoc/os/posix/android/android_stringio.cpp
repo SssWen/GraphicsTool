@@ -32,7 +32,7 @@
 #include "common/formatting.h"
 #include "os/os_specific.h"
 
-#define LOGCAT_TAG "renderdoc"
+#define LOGCAT_TAG "Renderdoc_Hook" // "Renderdoc_Hook"
 
 namespace Keyboard
 {

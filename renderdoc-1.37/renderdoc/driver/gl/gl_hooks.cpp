@@ -234,13 +234,60 @@ void GLHook::UseUnusedSupportedFunction(const char *name)
 
 void *GLHook::GetUnsupportedFunction(const char *name)
 {
+   
 #if ENABLED(RDOC_APPLE)
   RDCERR("GetUnsupportedFunction called on apple - this should be available at compile time");
 #endif
 
   void *ret = Process::GetFunctionAddress(handle, name);
   if(ret)
+  {
+    RDCLOG("WEN: Found %s in primary handle", name);
     return ret;
+  }
+
+#if ENABLED(RDOC_ANDROID)
+  // WEN: Android Hardware Buffer functions need special handling
+  // Try to get from libEGL.so directly
+  void *egl_handle = dlopen("libEGL.so", RTLD_NOLOAD | RTLD_LAZY);
+  if(egl_handle)
+  {
+    ret = dlsym(egl_handle, name);
+    if(ret)
+    {
+      RDCLOG("WEN: Found %s in libEGL.so", name);
+      return ret;
+    }
+  }
+
+  // Try eglGetProcAddress for extension functions
+  typedef void *(*PFN_eglGetProcAddress)(const char *);
+  PFN_eglGetProcAddress eglGetProcAddress = NULL;
+  
+  if(egl_handle)
+    eglGetProcAddress = (PFN_eglGetProcAddress)dlsym(egl_handle, "eglGetProcAddress");
+  
+  if(!eglGetProcAddress)
+    eglGetProcAddress = (PFN_eglGetProcAddress)dlsym(RTLD_DEFAULT, "eglGetProcAddress");
+
+  if(eglGetProcAddress)
+  {
+    ret = eglGetProcAddress(name);
+    if(ret)
+    {
+      RDCLOG("WEN: Found %s via eglGetProcAddress", name);
+      return ret;
+    }
+  }
+
+  // Last resort: try RTLD_DEFAULT (search all loaded libraries)
+  ret = dlsym(RTLD_DEFAULT, name);
+  if(ret)
+  {
+    RDCLOG("WEN: Found %s in RTLD_DEFAULT", name);
+    return ret;
+  }
+#endif
 
   RDCERR("Couldn't find real pointer for %s - will crash", name);
 
