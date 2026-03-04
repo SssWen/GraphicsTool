@@ -65,11 +65,7 @@ struct DisplayConfig
 class EGLHook : LibraryHook
 {
 public:
-  EGLHook() : driver(GetEGLPlatform())
-  {
-    RDCLOG("EGLHook instance created");
-    RegisterHooks();
-  }
+  EGLHook() : driver(GetEGLPlatform()) {}
   ~EGLHook()
   {
     for(auto it : extStrings)
