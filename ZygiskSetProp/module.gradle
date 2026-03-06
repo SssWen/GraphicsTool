@@ -1,0 +1,9 @@
+ext {
+    moduleLibraryName = "ZygiskSetProp"
+    magiskModuleId = "zygisk_setprop"
+    moduleName = "ZygiskSetProp"
+    moduleAuthor = "JerryWen"
+    moduleDescription = "Only set system properties via Magisk resetprop (no SO injection)"
+    moduleVersion = "v1.1"
+    moduleVersionCode = 2
+}
