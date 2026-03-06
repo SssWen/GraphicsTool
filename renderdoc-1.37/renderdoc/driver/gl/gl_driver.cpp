@@ -1103,10 +1103,17 @@ void WrappedOpenGL::DeleteContext(void *contextHandle)
       GL.glDeleteTextures(1, &ctxdata.GlyphTexture);
   }
 
-  if(ctxdata.m_ClientMemoryVBOs[0])
-    glDeleteBuffers(ARRAY_COUNT(ctxdata.m_ClientMemoryVBOs), ctxdata.m_ClientMemoryVBOs);
-  if(ctxdata.m_ClientMemoryIBO)
-    glDeleteBuffers(1, &ctxdata.m_ClientMemoryIBO);
+  // m_ClientMemoryVBOs/IBO are only valid if the context was ever made current (built=true).
+  // Calling glDeleteBuffers without a current context crashes in the Adreno driver (null deref
+  // at offset 0xf0). Guard with the built flag to handle contexts that were created but never
+  // made current (e.g. UE4 splash-screen / MediaPlayer auxiliary contexts).
+  if(ctxdata.built)
+  {
+    if(ctxdata.m_ClientMemoryVBOs[0])
+      glDeleteBuffers(ARRAY_COUNT(ctxdata.m_ClientMemoryVBOs), ctxdata.m_ClientMemoryVBOs);
+    if(ctxdata.m_ClientMemoryIBO)
+      glDeleteBuffers(1, &ctxdata.m_ClientMemoryIBO);
+  }
 
   if(ctxdata.m_ContextDataRecord)
   {

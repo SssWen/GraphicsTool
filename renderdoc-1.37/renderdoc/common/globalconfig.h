@@ -156,7 +156,8 @@ enum
 #define RENDERDOC_ANDROID_LIBRARY "libvkEGL.so" // WEN libVkLayer_GLES_RenderDoc -> libvkEGL.so
 
 // This MUST match the package name in the build process that generates per-architecture packages
-#define RENDERDOC_ANDROID_PACKAGE_BASE "org.renderdoc.renderdoccmd"
+#define RENDERDOC_ANDROID_PACKAGE_BASE "org.wendoc.wendoccmd" // WEN org.renderdoc.renderdoccmd.arm64.apk
+// org.renderdoc.renderdoccmd to org.wendoc.wendoccmd.arm64
 
 /////////////////////////////////////////////////
 // Debugging features configuration

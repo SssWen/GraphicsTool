@@ -176,6 +176,7 @@ rdcstr GetProcessNameForActivity(const rdcstr &deviceID, const rdcstr &packageNa
 
 int GetCurrentPID(const rdcstr &deviceID, const rdcstr &processName)
 {
+  RDCLOG("查找应用 '%s' 的 进程PID", processName.c_str());
   if(Android_Debug_ProcessLaunch())
   {
     RDCLOG("Getting PID from device %s for process '%s'", deviceID.c_str(), processName.c_str());
@@ -406,7 +407,7 @@ RDResult InstallRenderDocServer(const rdcstr &deviceID)
 {
   ResultCode result = ResultCode::Succeeded;
 
-  rdcarray<ABI> abis = GetSupportedABIs(deviceID);
+  rdcarray<ABI> abis = GetSupportedABIs(deviceID); // WEN:
 
   if(abis.empty())
   {
@@ -446,9 +447,11 @@ RDResult InstallRenderDocServer(const rdcstr &deviceID)
   paths.push_back(libDir + "/../share/renderdoc/plugins/android/");               // Linux install
   paths.push_back(libDir + "/../plugins/android/");                               // macOS install
   paths.push_back(libDir + "/../../build-android/bin/");                          // Local build
+  paths.push_back(libDir + "/../../build-android64/bin/");                         // Local build
   paths.push_back(libDir + "/../../build-android-" + suff + "/bin/");             // Local ABI build
   paths.push_back(libDir + "/../../../../../build-android/bin/");                 // macOS build
   paths.push_back(libDir + "/../../../../../build-android-" + suff + "/bin/");    // macOS ABI build
+  
 
   // use the first ABI for searching
   rdcstr apk = GetRenderDocPackageForABI(abis[0]);
@@ -1599,6 +1602,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
     RDCLOG("WEN: jdwpPort: %d,  pid: %d", jdwpPort, pid);
     if(jdwpPort)
     {
+      RDCERR("尝试使用JDWP 注入，等待应用启动后注入so");
       // use a JDWP connection to inject our libraries
       bool injected = Android::InjectWithJDWP(m_deviceID, jdwpPort);
       if(!injected)

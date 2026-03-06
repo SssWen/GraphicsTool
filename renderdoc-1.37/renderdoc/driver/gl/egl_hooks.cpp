@@ -399,8 +399,17 @@ HOOK_EXPORT EGLBoolean EGLAPIENTRY eglDestroyContext_renderdoc_hooked(EGLDisplay
   eglhook.driver.SetDriverType(eglhook.activeAPI);
   {
     SCOPED_LOCK(glLock);
-    eglhook.driver.DeleteContext(ctx);
-    eglhook.contexts.erase(ctx);
+    // Only call DeleteContext for contexts that RenderDoc registered via eglCreateContext.
+    // Untracked contexts (e.g. created before our hook was active) are passed through directly.
+    // Note: eglhook.configs is populated in eglCreateContext_renderdoc_hooked, so it reliably
+    // indicates whether RenderDoc created a ContextData entry (with shareGroup allocation) that
+    // needs to be cleaned up.
+    if(eglhook.configs.find(ctx) != eglhook.configs.end())
+    {
+      eglhook.driver.DeleteContext(ctx);
+      eglhook.contexts.erase(ctx);
+      eglhook.configs.erase(ctx);
+    }
   }
 
   return EGL.DestroyContext(dpy, ctx);
@@ -1037,11 +1046,11 @@ bool ShouldHookEGL()
 
 bool ShouldHookEGL()
 {
-  RDCLOG("WEN: enforce used EGL hooks.dlopen libEGL.so");
-  return true;
+  //RDCLOG("WEN: enforce used EGL hooks.dlopen libEGL.so");
+  //return true;
   // todo: WEN android9 还是要走这个流程
   //RDCLOG("WEN: Android10+ Disabling EGL hooks - USE EGL_ANDROID_GLES_layers ");
-  RDCLOG("WEN: 进行判断是否可以进行 EGL hooks.dlopen libEGL.so");
+  //RDCLOG("WEN: 进行判断是否可以进行 EGL hooks.dlopen libEGL.so");
   void *egl_handle = dlopen("libEGL.so", RTLD_LAZY);
   PFN_eglQueryString query_string = (PFN_eglQueryString)dlsym(egl_handle, "eglQueryString");
   if(!query_string)
@@ -1064,7 +1073,6 @@ bool ShouldHookEGL()
     RDCLOG("EGL_ANDROID_GLES_layers detected, disabling EGL hooks - GLES layering in effect");
     return false;
   }
-  RDCLOG("WEN: 初步判断可以进行 EGL hooks.");
   return true;
 }
 

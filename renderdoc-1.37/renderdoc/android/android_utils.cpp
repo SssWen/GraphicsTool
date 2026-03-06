@@ -114,10 +114,11 @@ rdcstr GetPlainABIName(ABI abi)
 {
   switch(abi)
   {
-    case ABI::arm64_v8a: return "arm64";
-    case ABI::armeabi_v7a: return "arm32";
-    case ABI::x86_64: return "x64";
-    case ABI::x86: return "x86";
+    case ABI::arm64_v8a: return "arm64"; // Qualcomm/MediaTek/Kirin/Exynos etc.
+    case ABI::armeabi_v7a: return "arm32"; // Legacy 32-bit devices
+    case ABI::x86_64: return "x64"; // Android emulator (x86_64 images)
+    case ABI::x86: return "x86"; // Android emulator (x86 images)
+    case ABI::unknown:
     default: break;
   }
 
@@ -132,7 +133,7 @@ rdcarray<ABI> GetSupportedABIs(const rdcstr &deviceID)
   // typically 32-bit.
   switch(GetABI(adbAbi))
   {
-    case ABI::arm64_v8a: return {ABI::armeabi_v7a, ABI::arm64_v8a};
+    case ABI::arm64_v8a: return {ABI::arm64_v8a}; //WEN delete 32 ABI::armeabi_v7a
     case ABI::armeabi_v7a: return {ABI::armeabi_v7a};
     case ABI::x86_64: return {ABI::x86, ABI::x86_64};
     case ABI::x86: return {ABI::x86};

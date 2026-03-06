@@ -31,9 +31,7 @@ public:
     void preAppSpecialize(AppSpecializeArgs *args) override {
         auto package_name = env->GetStringUTFChars(args->nice_name, nullptr);
         auto app_data_dir = env->GetStringUTFChars(args->app_data_dir, nullptr);
-//        if (strcmp(package_name, AimPackageName) == 0){
-//            args->runtime_flags=8451;
-//        }
+
         LOGI("preAppSpecialize %s %s %d", package_name, app_data_dir,args->runtime_flags);
 
         preSpecialize(package_name, app_data_dir);
@@ -41,9 +39,13 @@ public:
         env->ReleaseStringUTFChars(args->app_data_dir, app_data_dir);
     }
 
-    void postAppSpecialize(const AppSpecializeArgs *) override {
+    void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (enable_hack) {
-            std::thread hack_thread(hack_prepare, _data_dir, data, length);
+            // 简化: 不需要 JavaVM,直接启动注入线程
+            LOGI("✅ 启动注入线程");
+            std::thread hack_thread([this]() {
+                hack_start(_data_dir);
+            });
             hack_thread.detach();
         }
     }
@@ -79,16 +81,13 @@ private:
             // 清理换行符和空格
             line.erase(line.find_last_not_of(" \n\r\t") + 1);
             allowedPackages.emplace_back(line);
-            LOGD("Loaded package: %s", line.c_str());
+            // LOGD("Loaded package: %s", line.c_str());
         }
         configFile.close();
         return true;
     }
 
-    void preSpecialize(const char *package_name, const char *app_data_dir) {
-        //|| strcmp(package_name, AimPackageName1) == 0 || strcmp(package_name, AimPackageName2) == 0 || strcmp(package_name, AimPackageName3) == 0 || strcmp(package_name, AimPackageName4) == 0) 
-        // if (strcmp(package_name, AimPackageName) == 0 )
-
+    void preSpecialize(const char *package_name, const char *app_data_dir) {        
         // 只在第一次加载配置文件（避免重复加载和权限问题）
         if (allowedPackages.empty()) {
             bool is_load = loadConfig("/data/local/tmp/renderdoc.cfg");
@@ -115,10 +114,12 @@ private:
              is_main_process ? "YES" : "NO",
              is_allowed ? "YES" : "NO");
         
-        // 只注入主进程（RenderDoc 通常只需要在主进程中运行）
-        if (is_allowed && is_main_process)
+        // 🔥 修改：支持注入所有进程（包括主进程和子进程）
+        if (is_allowed)  // 移除 && is_main_process 条件
         {
-            LOGI("✅ 成功找到目标主进程: %s", package_name);
+            LOGI("✅ 成功找到目标进程: %s (主进程: %s)", 
+                 package_name, 
+                 is_main_process ? "是" : "否");
             enable_hack = true;
             _data_dir = new char[strlen(app_data_dir) + 1];
             strcpy(_data_dir, app_data_dir);
@@ -147,11 +148,7 @@ private:
 #endif
         } else {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
-            if (!is_allowed) {
-                LOGD("⏭️ 跳过: %s (不在白名单)", package_name);
-            } else if (!is_main_process) {
-                LOGI("⏭️ 跳过子进程: %s (只注入主进程)", package_name);
-            }
+            LOGD("⏭️ 跳过: %s (不在白名单)", package_name);
             enable_hack = false;
         }
     }

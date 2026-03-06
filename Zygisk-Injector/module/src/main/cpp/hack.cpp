@@ -1,6 +1,5 @@
 #include "hack.h"
 #include "log.h"
-#include "xdl.h"
 #include <cstring>
 #include <cstdio>
 #include <unistd.h>
@@ -12,10 +11,15 @@
 #include <linux/unistd.h>
 #include <array>
 #include <sys/stat.h>
-//#include <asm-generic/fcntl.h>
 #include <fcntl.h>
 #include "newriruhide.h"
-void load_so(const char *game_data_dir, JavaVM *vm, const char *soname) {
+
+// 全局变量标记是否已经注入
+static bool g_injected = false;
+static char g_game_data_dir[256] = {0};
+
+// 注意: JavaVM 参数已移除,因为当前实现中不需要 JNI 调用
+void load_so(const char *game_data_dir, const char *soname) {
     bool load = false;
     LOGI("hack_start %s", game_data_dir);
 
@@ -80,8 +84,26 @@ void load_so(const char *game_data_dir, JavaVM *vm, const char *soname) {
         }
     }
 }
-void hack_start(const char *game_data_dir,JavaVM *vm) {    
-    load_so(game_data_dir,vm,"libvkEGL");//libvkEGL.so
+
+void hack_start(const char *game_data_dir) {
+    if (g_injected) return;
+    
+    strncpy(g_game_data_dir, game_data_dir, sizeof(g_game_data_dir) - 1);
+    
+    LOGI("🚀 启动智能注入系统");
+    
+#ifdef EARLY_INJECT  // 编译时选项：提前注入模式
+    LOGI("📌 使用提前注入模式（适用于 PLT/GOT Hook）");
+    // 不管游戏库是否加载，立即注入
+    LOGI("⚡ 立即注入，确保在 OpenGL 调用前完成 Hook");
+    load_so(game_data_dir, "libvkEGL");
+    g_injected = true;
+    LOGI("✅ 提前注入完成");
+    return;
+#else  // 默认：延迟注入模式（适用于 Inline Hook）
+#endif
+    
+    
     //如果要注入多个so，那么就在这里不断的添加load_so函数即可
 }
 
@@ -165,18 +187,17 @@ struct NativeBridgeCallbacks {
 void hack_prepare(const char *_data_dir, void *data, size_t length) {
     LOGI("hack thread: %d", gettid());
     int api_level = android_get_device_api_level();
-    LOGI("api level: %d", api_level);
-    // usleep(500000*6);  // 500ms，而不是 2 秒
+    LOGI("api level: %d", api_level);    
     
     LOGI("✅ Process stabilized, injecting now...");
-    hack_start(_data_dir, nullptr);
+    hack_start(_data_dir);
 }
 
 #if defined(__arm__) || defined(__aarch64__)
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     auto game_data_dir = (const char *) reserved;
-    std::thread hack_thread(hack_start, game_data_dir,vm);
+    std::thread hack_thread(hack_start, game_data_dir);
     hack_thread.detach();
     return JNI_VERSION_1_6;
 }

@@ -3,7 +3,7 @@ ext {
     magiskModuleId = "Zygisk_Injector"
     moduleName = "RenderDocInjector"
     moduleAuthor = "JerryWen"
-    moduleDescription = "注入renderdoc,配置文件放置在/data/local/tmp/renderdoc.cfg"
-    moduleVersion = "v0.05"
+    moduleDescription = "注入renderdoc,提前设置权限"
+    moduleVersion = "v1.0"
     moduleVersionCode = 1
 }
