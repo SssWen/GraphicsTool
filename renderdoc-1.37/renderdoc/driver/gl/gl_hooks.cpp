@@ -339,7 +339,7 @@ void GLHook::RegisterHooks()
   const char *libraryName = "libGL.so.1";
 #endif
 
-  LibraryHooks::RegisterLibraryHook(libraryName, &GLHooked);
+  LibraryHooks::RegisterLibraryHook(libraryName, &GLHooked); // android平台在android_hook.cpp实现了这个函数，回调到GLHooked，保存了库句柄
 
   // MSVC compiles this function to use a huge amount of stack by initialising all the FunctionHook
   // locals all at once. So we instead explicitly re-use the same hook (since it's going to be

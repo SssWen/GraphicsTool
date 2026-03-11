@@ -7,14 +7,14 @@ MODDIR=${0%/*}
 # More info in the main Magisk thread
 
 # 尽早设置 SELinux 为 permissive 模式
-setenforce 0
+# setenforce 0
 
 # 设置 /data/local/tmp 目录权限
-chmod 777 /data/local/tmp
+# chmod 777 /data/local/tmp
 
-# 设置 renderdoc.cfg 配置文件权限(如果存在)
-chmod 666 /data/local/tmp/renderdoc.cfg 2>/dev/null
+# # 设置 renderdoc.cfg 配置文件权限(如果存在)
+# chmod 666 /data/local/tmp/renderdoc.cfg 2>/dev/null
 
-# 记录日志
-log -t GraphicsTool "SELinux set to permissive mode (post-fs-data)"
-log -t GraphicsTool "Permissions set for /data/local/tmp"
+# # 记录日志
+# log -t GraphicsTool "SELinux set to permissive mode (post-fs-data)"
+# log -t GraphicsTool "Permissions set for /data/local/tmp"

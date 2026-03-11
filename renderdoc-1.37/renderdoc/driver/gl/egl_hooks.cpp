@@ -1046,8 +1046,9 @@ bool ShouldHookEGL()
 
 bool ShouldHookEGL()
 {
-  //RDCLOG("WEN: enforce used EGL hooks.dlopen libEGL.so");
-  //return true;
+  // zygisk 模式下强制使用EGL Hooks,如果使用图形界面则去掉这个判断
+  RDCLOG("WEN: enforce used EGL hooks.dlopen libEGL.so");
+  return true;
   // todo: WEN android9 还是要走这个流程
   //RDCLOG("WEN: Android10+ Disabling EGL hooks - USE EGL_ANDROID_GLES_layers ");
   //RDCLOG("WEN: 进行判断是否可以进行 EGL hooks.dlopen libEGL.so");

@@ -98,28 +98,18 @@ private:
             }
         }
         
-        // 检查是否包含冒号（子进程标识）
-        bool is_main_process = (strchr(package_name, ':') == nullptr);
+        // 精确匹配白名单包名
+        bool is_allowed = std::any_of(allowedPackages.begin(), allowedPackages.end(),
+            [package_name](const std::string& pkg) {
+                return pkg == package_name;
+            });
         
-        // 改为前缀匹配，支持子进程（如 com.example.app:service）
-        bool is_allowed = std::any_of(allowedPackages.begin(), allowedPackages.end(),[package_name](const std::string& pkg) {
-            // 检查包名是否以白名单中的包名开头
-            return strncmp(package_name, pkg.c_str(), pkg.length()) == 0 &&
-                   (package_name[pkg.length()] == '\0' || package_name[pkg.length()] == ':');
-        });
-        
-        // 添加详细调试日志
-        LOGD("🔍 Process: %s | Main: %s | Allowed: %s", 
+        LOGD("🔍 Process: %s | Allowed: %s", 
              package_name, 
-             is_main_process ? "YES" : "NO",
              is_allowed ? "YES" : "NO");
         
-        // 🔥 修改：支持注入所有进程（包括主进程和子进程）
-        if (is_allowed)  // 移除 && is_main_process 条件
-        {
-            LOGI("✅ 成功找到目标进程: %s (主进程: %s)", 
-                 package_name, 
-                 is_main_process ? "是" : "否");
+        if (is_allowed) {
+            LOGI("✅ 成功找到目标进程: %s", package_name);
             enable_hack = true;
             _data_dir = new char[strlen(app_data_dir) + 1];
             strcpy(_data_dir, app_data_dir);

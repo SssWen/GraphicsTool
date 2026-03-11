@@ -85,26 +85,51 @@ void load_so(const char *game_data_dir, const char *soname) {
     }
 }
 
+// 读取 /proc/self/cmdline 获取当前进程名
+static std::string get_process_name() {
+    char cmdline[256] = {0};
+    int fd = open("/proc/self/cmdline", O_RDONLY);
+    if (fd >= 0) {
+        read(fd, cmdline, sizeof(cmdline) - 1);
+        close(fd);
+    }
+    return std::string(cmdline);
+}
+
 void hack_start(const char *game_data_dir) {
     if (g_injected) return;
     
     strncpy(g_game_data_dir, game_data_dir, sizeof(g_game_data_dir) - 1);
     
-    LOGI("🚀 启动智能注入系统");
-    
-#ifdef EARLY_INJECT  // 编译时选项：提前注入模式
-    LOGI("📌 使用提前注入模式（适用于 PLT/GOT Hook）");
-    // 不管游戏库是否加载，立即注入
-    LOGI("⚡ 立即注入，确保在 OpenGL 调用前完成 Hook");
+    LOGI("🚀 启动注入系统，等待进程初始化完成...");
+
+    // 从 app_data_dir 提取包名
+    // /data/user/0/com.run.tower.defense → com.run.tower.defense
+    const char *last_slash = strrchr(game_data_dir, '/');
+    const char *pkg_name = last_slash ? last_slash + 1 : game_data_dir;
+    LOGI("� 目标包名: %s", pkg_name);
+
+    // 等待进程从 usap64 变成真正的目标应用进程
+    // postAppSpecialize 返回后进程还在 specialize 阶段，需要等待完成
+    for (int i = 0; i < 100; i++) {
+        std::string proc_name = get_process_name();
+        LOGD("⏳ [%d] 当前进程名: %s", i, proc_name.c_str());
+        
+        if (proc_name == pkg_name) {
+            LOGI("✅ 进程已就绪: %s，开始注入", proc_name.c_str());
+            break;
+        }
+        
+        if (i == 99) {
+            LOGW("⚠️ 等待超时，强制注入 (当前进程: %s)", proc_name.c_str());
+        }
+        usleep(20000); // 每 20ms 检测一次，最多等待 2 秒
+    }
+
+    LOGI("⚡ 开始注入 libvkEGL.so");
     load_so(game_data_dir, "libvkEGL");
     g_injected = true;
-    LOGI("✅ 提前注入完成");
-    return;
-#else  // 默认：延迟注入模式（适用于 Inline Hook）
-#endif
-    
-    
-    //如果要注入多个so，那么就在这里不断的添加load_so函数即可
+    LOGI("✅ 注入完成");
 }
 
 std::string GetLibDir(JavaVM *vms) {
