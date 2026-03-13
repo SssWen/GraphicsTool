@@ -4,6 +4,6 @@ ext {
     moduleName = "ImGui Debugger"
     moduleAuthor = "JerryWen"
     moduleDescription = "ImGui Debugger"
-    moduleVersion = "v1.0.0"
+    moduleVersion = "v1"
     moduleVersionCode = 1
 }
