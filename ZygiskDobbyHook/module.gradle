@@ -1,0 +1,9 @@
+ext {
+    moduleLibraryName = "imgui_debugger"
+    magiskModuleId = "zygisk_imgui_debugger"
+    moduleName = "ImGui Debugger"
+    moduleAuthor = "JerryWen"
+    moduleDescription = "ImGui Debugger"
+    moduleVersion = "v1.0.0"
+    moduleVersionCode = 1
+}
