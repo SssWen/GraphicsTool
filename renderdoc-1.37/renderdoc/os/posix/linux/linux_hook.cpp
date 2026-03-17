@@ -579,6 +579,12 @@ bool LibraryHooks::Detect(const char *identifier)
   return dlsym(RTLD_DEFAULT, identifier) != NULL;
 }
 
+void *LibraryHooks::GetOrigFunctionPtr(const char *funcName)
+{
+  // PLT hooking on Linux - raw function addresses bypass hooks naturally
+  return nullptr;
+}
+
 void LibraryHooks::RemoveHooks()
 {
   RDCERR("Removing hooks is not possible on this platform");

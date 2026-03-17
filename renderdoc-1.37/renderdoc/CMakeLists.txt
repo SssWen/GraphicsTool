@@ -565,7 +565,34 @@ if(ANDROID AND USE_INTERCEPTOR_LIB )
 endif()
 
 if(ANDROID AND NOT USE_INTERCEPTOR_LIB)
-    message(STATUS "Interceptor-lib not enabled (USE_INTERCEPTOR_LIB) - android hooking will use sometimes less reliable PLT-interception method. ")
+    message(STATUS "Interceptor-lib not enabled (USE_INTERCEPTOR_LIB) - using Dobby inline hooks + xdl for Android function hooking.")
+
+    # xdl: enhanced dlopen/dlsym that bypasses linker namespace restrictions
+    aux_source_directory(3rdparty/xdl xdl_sources)
+    list(APPEND sources ${xdl_sources})
+    include_directories(3rdparty/xdl/include)
+
+    # Dobby: inline hook library
+    if(NOT TARGET dobby)
+        macro(RDOC_SET_DOBBY_OPTION option value)
+            set(${option} ${value} CACHE INTERNAL "" FORCE)
+        endmacro()
+        RDOC_SET_DOBBY_OPTION(DOBBY_GENERATE_SHARED OFF)
+        RDOC_SET_DOBBY_OPTION(DOBBY_DEBUG OFF)
+        RDOC_SET_DOBBY_OPTION(NearBranch ON)
+        RDOC_SET_DOBBY_OPTION(FullFloatingPointRegisterPack OFF)
+        RDOC_SET_DOBBY_OPTION(Plugin.SymbolResolver OFF)
+        RDOC_SET_DOBBY_OPTION(Plugin.ImportTableReplace OFF)
+        RDOC_SET_DOBBY_OPTION(Plugin.Android.BionicLinkerUtil OFF)
+        RDOC_SET_DOBBY_OPTION(BUILD_EXAMPLE OFF)
+        RDOC_SET_DOBBY_OPTION(BUILD_TEST OFF)
+        add_subdirectory(3rdparty/dobby dobby_build)
+        get_property(DOBBY_INCLUDE_DIRS TARGET dobby PROPERTY INCLUDE_DIRECTORIES)
+        include_directories(${DOBBY_INCLUDE_DIRS})
+    endif()
+
+    list(APPEND RDOC_LIBRARIES PRIVATE dobby)
+    set(RDOC_DEFINITIONS ${RDOC_DEFINITIONS} PRIVATE -DRENDERDOC_HAVE_DOBBY)
 endif()
 
 # always pull in the amd folder

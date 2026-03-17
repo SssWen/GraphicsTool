@@ -36,8 +36,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <set>
+
+#if defined(RENDERDOC_HAVE_DOBBY)
+#include "xdl.h"
+#include "dobby.h"
+#include <time.h>
+#endif
 
 // uncomment the following to print (very verbose) debugging prints for the android PLT hooking
 // #define HOOK_DEBUG_PRINT(...) RDCLOG(__VA_ARGS__)
@@ -213,10 +220,191 @@ HookingInfo &GetHookInfo()
   return hookinfo;
 }
 
+#if defined(RENDERDOC_HAVE_DOBBY)
+static Threading::CriticalSection g_DobbyHookLock;
+static std::set<void *> g_DobbyHookedTargets;
+static std::map<rdcstr, void *> g_DobbyOrigByName;
+static rdcstr g_SelfLibraryPath;
+static rdcstr g_SelfLibraryBase;
+
+static rdcstr Basename(const char *path)
+{
+  if(path == NULL || path[0] == 0)
+    return "";
+
+  const char *slash = strrchr(path, '/');
+  if(slash)
+    return slash + 1;
+
+  return path;
+}
+
+static bool IsSelfModulePath(const char *path)
+{
+  if(path == NULL || path[0] == 0)
+    return false;
+
+  if(strstr(path, RENDERDOC_ANDROID_LIBRARY) != NULL)
+    return true;
+
+  if(g_SelfLibraryPath.empty())
+  {
+    FileIO::GetLibraryFilename(g_SelfLibraryPath);
+    g_SelfLibraryBase = Basename(g_SelfLibraryPath.c_str());
+  }
+
+  if(!g_SelfLibraryPath.empty() && strstr(path, g_SelfLibraryPath.c_str()) != NULL)
+    return true;
+
+  if(!g_SelfLibraryBase.empty() && strstr(path, g_SelfLibraryBase.c_str()) != NULL)
+    return true;
+
+  return false;
+}
+
+static bool IsEGLCoreHook(const FunctionHook &hook)
+{
+  // 先收缩为最小 EGL 核心集合，验证稳定性：
+  // - 上下文创建/切换：eglGetDisplay / eglCreateContext / eglMakeCurrent
+  // - 交换缓冲：eglSwapBuffers
+  // - 获取函数指针：eglGetProcAddress
+  const char *name = hook.function.c_str();
+  if(name == NULL || name[0] == 0)
+    return false;
+
+  if(strcmp(name, "eglGetDisplay") == 0)
+    return true;
+  if(strcmp(name, "eglCreateContext") == 0)
+    return true;
+  if(strcmp(name, "eglMakeCurrent") == 0)
+    return true;
+  if(strcmp(name, "eglSwapBuffers") == 0)
+    return true;
+  if(strcmp(name, "eglGetProcAddress") == 0)
+    return true;
+
+  return false;
+}
+
+static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const char *owner)
+{
+  // 仅对一小撮关键 EGL 函数做 Dobby 测试，先验证稳定性，避免一次性 hook 全 GL/GLES 导致黑屏/崩溃。
+  if(!IsEGLCoreHook(hook))
+  {
+    HOOK_DEBUG_PRINT("Skip non-core EGL/GL symbol: %s", hook.function.c_str());
+    return false;
+  }
+
+  if(handle == NULL || hook.hook == NULL || hook.function.empty())
+    return false;
+
+  void *target = xdl_sym(handle, hook.function.c_str(), NULL);
+  if(target == NULL)
+    return false;
+
+  {
+    SCOPED_LOCK(g_DobbyHookLock);
+    if(g_DobbyHookedTargets.find(target) != g_DobbyHookedTargets.end())
+    {
+      if(hook.orig && *hook.orig == NULL)
+      {
+        auto it = g_DobbyOrigByName.find(hook.function);
+        if(it != g_DobbyOrigByName.end())
+          *hook.orig = it->second;
+      }
+      return true;
+    }
+  }
+
+  Dl_info info = {};
+  if(dladdr(target, &info) == 0 || info.dli_fname == NULL)
+  {
+    RDCWARN("Skip Dobby hook for %s (owner=%s): dladdr failed for target=%p", hook.function.c_str(),
+            owner ? owner : "(null)", target);
+    return false;
+  }
+
+  // 关键保护：禁止对 renderdoc 自身导出符号做 inline hook。
+  // 若命中 self-export（例如 eglSwapBuffers wrapper），会形成递归并在渲染线程栈爆崩溃。
+  if(IsSelfModulePath(info.dli_fname))
+  {
+    RDCWARN("Skip self-export symbol hook: %s owner=%s target=%p module=%s", hook.function.c_str(),
+            owner ? owner : "(null)", target, info.dli_fname);
+    return false;
+  }
+
+  void *trampoline = NULL;
+  int rc = DobbyHook(target, hook.hook, (dobby_dummy_func_t *)&trampoline);
+  if(rc != 0)
+  {
+    RDCERR("DobbyHook failed: %s in %s target=%p hook=%p rc=%d", hook.function.c_str(), owner, target,
+           hook.hook, rc);
+    return false;
+  }
+
+  {
+    SCOPED_LOCK(g_DobbyHookLock);
+    g_DobbyHookedTargets.insert(target);
+    if(trampoline && g_DobbyOrigByName.find(hook.function) == g_DobbyOrigByName.end())
+      g_DobbyOrigByName[hook.function] = trampoline;
+  }
+
+  if(hook.orig && *hook.orig == NULL)
+    *hook.orig = trampoline;
+
+  RDCLOG("DobbyHook success: %s in %s target=%p hook=%p tramp=%p", hook.function.c_str(), owner,
+         target, hook.hook, trampoline);
+  return true;
+}
+
+static void ApplyDobbyHooksForHandle(void *handle, const char *owner)
+{
+  if(handle == NULL)
+    return;
+
+  rdcarray<FunctionHook> hooks = GetHookInfo().GetFunctionHooks();
+  for(const FunctionHook &hook : hooks)
+    DobbyHookOneSymbol(handle, hook, owner);
+}
+
+static void ApplyDobbyHooksForPath(const char *path)
+{
+  if(path == NULL || path[0] == 0)
+    return;
+
+  // 使用 TRY_FORCE_LOAD 获取真实系统库句柄，避免仅命中重定向句柄。
+  void *handle = xdl_open(path, XDL_TRY_FORCE_LOAD);
+  if(handle == NULL)
+  {
+    HOOK_DEBUG_PRINT("xdl_open failed for %s", path);
+    return;
+  }
+
+  ApplyDobbyHooksForHandle(handle, path);
+  xdl_close(handle);
+}
+
+static void ApplyDobbyHooksForRegisteredLibraries()
+{
+  rdcarray<rdcstr> libs = GetHookInfo().GetLibHooks();
+  for(const rdcstr &lib : libs)
+    ApplyDobbyHooksForPath(lib.c_str());
+}
+#endif
+
 void *intercept_dlopen(const char *filename, int flag)
 {
   if(filename)
   {
+#if defined(RENDERDOC_HAVE_DOBBY)
+    // Dobby 路径下，主劫持依赖 inline hook，不再把 libEGL/libGLES 的 dlopen 重定向到 ourselves。
+    // 否则 dlsym(handle, "egl*") 容易优先命中 renderdoc 导出 wrapper，增加 self-hook 递归风险。
+    if(strstr(filename, RENDERDOC_ANDROID_LIBRARY))
+    {
+      HOOK_DEBUG_PRINT("Intercepting self dlopen for %s", filename);
+      return dlopen(RENDERDOC_ANDROID_LIBRARY, flag);
+    }
+#else
     // if this is a library we're hooking, or a request for our own library in any form, return our
     // own library.
     // We need to intercept requests for our own library, because the android loader makes the
@@ -228,6 +416,7 @@ void *intercept_dlopen(const char *filename, int flag)
       RDCLOG("WEN: dlopen %s  ", rdcstr(RENDERDOC_ANDROID_LIBRARY).c_str());
       return dlopen(RENDERDOC_ANDROID_LIBRARY, flag);
     }
+#endif
   }
 
   return NULL;
@@ -433,6 +622,17 @@ uint64_t suppressTLS = 0;
 
 void process_dlopen(const char *filename, int flag)
 {
+#if defined(RENDERDOC_HAVE_DOBBY)
+  (void)flag;
+  if(filename == NULL)
+    return;
+
+  // Dobby 模式下，EGL/GL 类库一旦加载就立刻应用 inline hook，确保从创建
+  // EGLDisplay/EGLContext/EGLSurface 开始就被 RenderDoc 追踪，避免“晚接管”
+  // 导致内部状态缺失。
+  ApplyDobbyHooksForPath(filename);
+  return;
+#else
   if(filename && !GetHookInfo().IsHooked(rdcstr(filename)))
   {
     HOOK_DEBUG_PRINT("iterating after %s", filename);
@@ -443,6 +643,30 @@ void process_dlopen(const char *filename, int flag)
   {
     HOOK_DEBUG_PRINT("Ignoring");
   }
+#endif
+}
+
+extern "C" __attribute__((visibility("default"))) void *hooked_loader_dlopen(
+    const char *filename, int flag, const void *caller_addr)
+{
+  HOOK_DEBUG_PRINT("hooked_loader_dlopen for %s | %d", filename, flag);
+
+  void *ret = intercept_dlopen(filename, flag);
+  if(ret)
+    return ret;
+
+  if(loader_dlopen == NULL)
+  {
+    RDCERR("loader_dlopen trampoline is NULL");
+    return NULL;
+  }
+
+  ret = loader_dlopen(filename, flag, caller_addr);
+
+  if(filename && ret)
+    process_dlopen(filename, flag);
+
+  return ret;
 }
 
 extern "C" __attribute__((visibility("default"))) void *hooked_dlopen(const char *filename, int flag)
@@ -482,7 +706,7 @@ extern "C" __attribute__((visibility("default"))) void *hooked_android_dlopen_ex
     return ret;
 
   // otherwise return the 'real' result.
-  if(real_android_dlopen_ext == NULL)
+  if(real_android_dlopen_ext != NULL)
     ret = real_android_dlopen_ext(__filename, __flags, __info);
   else
     ret = android_dlopen_ext(__filename, __flags, __info);
@@ -540,6 +764,20 @@ static void InstallHooksCommon()
 
   loader_dlopen = (pfn__loader_dlopen)dlsym(RTLD_NEXT, "__loader_dlopen");
 
+#if defined(RENDERDOC_HAVE_DOBBY)
+  // 为了验证 EGL/GL Dobby inline hook 的稳定性，暂时不对 linker/bionic 的
+  // __loader_dlopen / android_dlopen_ext 入口做 inline hook，避免在 early init
+  // 阶段 patch 到不安全区域导致 SIGILL。此时 Dobby 只会在 EndHookRegistration/
+  // Refresh 阶段对已加载的 libEGL/libGLES 做一次批量 hook。
+  if(loader_dlopen)
+  {
+    RDCLOG("Dobby loader hooks temporarily disabled (have __loader_dlopen=%p)", loader_dlopen);
+  }
+  else
+  {
+    RDCWARN("Couldn't find __loader_dlopen for Dobby hook (loader hooks disabled)");
+  }
+#else
   if(loader_dlopen)
   {
     RDCLOG("钩子注册： 将 dlopen 的符号指向 android_hook的 hooked_dlopen。");
@@ -553,6 +791,7 @@ static void InstallHooksCommon()
 
   LibraryHooks::RegisterFunctionHook(
       "", FunctionHook("android_dlopen_ext", NULL, (void *)&hooked_android_dlopen_ext));
+#endif
 }
 
 #if defined(RENDERDOC_HAVE_INTERCEPTOR_LIB)
@@ -676,7 +915,15 @@ void PatchHookedFunctions()
 
 void PatchHookedFunctions()
 {
+#if defined(RENDERDOC_HAVE_DOBBY)
+  // Android + Dobby 模式：在 EndHookRegistration 阶段立刻对已注册的
+  // libEGL/libGLES 等库执行 inline hook，让 EGL 从进程启动阶段就处于
+  // 被拦截状态，只保留 so 注入层面的延迟策略。
+  RDCLOG("Applying hooks with Dobby inline hooks (immediate EGL/GL install)");
+  ApplyDobbyHooksForRegisteredLibraries();
+#else
   RDCLOG("Applying hooks with PLT hooks");
+#endif
 }
 
 #endif
@@ -690,6 +937,24 @@ bool LibraryHooks::Detect(const char *identifier)
   RDCLOG("Detecting symbol %s by getenv: %s", identifier, env ? "yes" : "no");
 
   return symbol || env;
+}
+
+void *LibraryHooks::GetOrigFunctionPtr(const char *funcName)
+{
+#if defined(RENDERDOC_HAVE_DOBBY)
+  if(funcName == NULL)
+    return NULL;
+
+  SCOPED_LOCK(g_DobbyHookLock);
+  auto it = g_DobbyOrigByName.find(funcName);
+  if(it != g_DobbyOrigByName.end())
+    return it->second;
+#else
+  (void)funcName;
+#endif
+
+  // PLT/GOT 路径下原始符号地址天然绕过 hook；Dobby 路径下未命中则返回空。
+  return NULL;
 }
 
 void LibraryHooks::RemoveHooks()
@@ -790,6 +1055,7 @@ void LibraryHooks::EndHookRegistration()
   RDCLOG("Fetching %zu original function pointers over %zu libraries", functionHooks.size(),
          libraryHooks.size());
 
+#if !defined(RENDERDOC_HAVE_DOBBY)
   for(auto it = libraryHooks.begin(); it != libraryHooks.end(); ++it)
   {
     void *handle = dlopen(it->c_str(), RTLD_NOLOAD | RTLD_GLOBAL);
@@ -803,6 +1069,10 @@ void LibraryHooks::EndHookRegistration()
       }
     }
   }
+#else
+  // Dobby 路径下必须以 trampoline 为准，避免把已 inline-hook 的入口地址误当作 orig。
+  RDCLOG("Skipping dlsym backfill on Dobby path; trampolines are authoritative");
+#endif
 
   RDCLOG("Finished");
 
@@ -833,7 +1103,13 @@ void LibraryHooks::Refresh()
   }
 
   RDCLOG("Refreshing android hooks...");
+#if defined(RENDERDOC_HAVE_DOBBY)
+  // Dobby 模式下，Refresh 即刻对已注册库进行一次增量扫描 + hook，
+  // 覆盖运行过程中后续加载的 libEGL/libGLES 等，保持“全程有钩子”。
+  ApplyDobbyHooksForRegisteredLibraries();
+#else
   dl_iterate_phdr(dl_iterate_callback, NULL);
+#endif
   RDCLOG("Refreshed");
 }
 

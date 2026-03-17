@@ -485,9 +485,8 @@ void RenderDoc::Initialise()
 
     if(m_CaptureFileTemplate.empty())
         SetCaptureFileTemplate(capture_filename);
-    //RDCLOG("WEN: logfile ---  %s", m_LoggingFilename.c_str());
-    RDCLOG("WEN: logfile ---  ");
-    RDCLOGFILE(m_LoggingFilename.c_str()); //WEN TODO: ÏÈ×¢ÊÍÏÂ
+    // Disable log file - output to logcat only
+    RDCLOGFILE(m_LoggingFilename.c_str()); // WEN: disable log file æ³¨é‡Š
   }
 
   const char *platform =

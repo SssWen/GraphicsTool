@@ -161,6 +161,13 @@ public:
   // refreshes hooks, useful on android where hooking can be unreliable
   static void Refresh();
 
+  // Returns the trampoline (original function pointer that skips the hook) for inline hooking
+  // methods such as Dobby. Returns nullptr on platforms using PLT/GOT hooking, where GL.*
+  // pointers obtained via dlsym/eglGetProcAddress already bypass the hook naturally.
+  // Used by EGL/GL dispatch table population to avoid re-entrancy when RenderDoc internally
+  // calls GL functions whose prologues have been patched by an inline hooker.
+  static void *GetOrigFunctionPtr(const char *funcName);
+
   // Ignore this library - i.e. do not hook any calls it makes. Useful in the case where a library
   // might call in to hooked APIs but we want to treat it as a black box.
   static void IgnoreLibrary(const char *libraryName);

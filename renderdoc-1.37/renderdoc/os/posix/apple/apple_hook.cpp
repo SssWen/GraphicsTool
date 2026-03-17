@@ -151,6 +151,11 @@ void LibraryHooks::Refresh()
   // don't need to refresh on mac
 }
 
+void *LibraryHooks::GetOrigFunctionPtr(const char *funcName)
+{
+  return nullptr;
+}
+
 void LibraryHooks::RegisterFunctionHook(const char *libraryName, const FunctionHook &hook)
 {
   // we don't use the library name

@@ -1,5 +1,5 @@
 #include <cstring>
-#include <thread>
+#include <cerrno>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -40,13 +40,13 @@ public:
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
-        if (enable_hack) {
-            // 简化: 不需要 JavaVM,直接启动注入线程
-            LOGI("✅ 启动注入线程");
-            std::thread hack_thread([this]() {
-                hack_start(_data_dir);
-            });
-            hack_thread.detach();
+        if (enable_hack && so_data) {
+            // postAppSpecialize 阶段进程已完成 fork + specialize，
+            // Dobby hook 只需挂钩函数指针，不依赖进程名，可直接同步注入。
+            inject_from_memory(so_data, so_length, _data_dir);
+            munmap(so_data, so_length);
+            so_data   = nullptr;
+            so_length = 0;
         }
     }
 
@@ -55,8 +55,8 @@ private:
     JNIEnv *env;
     bool enable_hack = false;
     char *_data_dir = nullptr;
-    void *data= nullptr;
-    size_t length = 0;
+    void  *so_data   = nullptr;
+    size_t so_length = 0;
 
     // 加载配置文件
     bool loadConfig(const char* configPath) {
@@ -114,28 +114,29 @@ private:
             _data_dir = new char[strlen(app_data_dir) + 1];
             strcpy(_data_dir, app_data_dir);
 
-#if defined(__i386__)
-            auto path = "zygisk/armeabi-v7a.so";
-#endif
-#if defined(__x86_64__)
-            auto path = "zygisk/arm64-v8a.so";
-#endif
-#if defined(__i386__) || defined(__x86_64__)
-            // 这段代码只在 x86 模拟器上执行
-            // 真机 ARM 设备不会进入这里
-            int dirfd = api->getModuleDir();
-            int fd = openat(dirfd, path, O_RDONLY);
-            if (fd != -1) {
-                struct stat sb{};
-                fstat(fd, &sb);
-                length = sb.st_size;
-                data = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
-                close(fd);
-            } else {                
-                enable_hack = false;
-                LOGW("enable_hack set false %s", package_name);
+            // 在 zygote 进程（有 root 权限）里把 SO 映射到内存
+            // fork 后子进程继承此映射，postAppSpecialize 直接写入无需再读文件
+            {
+                int fd = open("/data/local/tmp/libvkEGL.so", O_RDONLY);
+                if (fd != -1) {
+                    struct stat sb{};
+                    fstat(fd, &sb);
+                    so_length = sb.st_size;
+                    so_data   = mmap(nullptr, so_length, PROT_READ, MAP_PRIVATE, fd, 0);
+                    close(fd);
+                    if (so_data == MAP_FAILED) {
+                        LOGE("mmap failed for libvkEGL.so: %s", strerror(errno));
+                        so_data   = nullptr;
+                        so_length = 0;
+                        enable_hack = false;
+                    } else {
+                        LOGI("mmap libvkEGL.so success: %p size=%zu", so_data, so_length);
+                    }
+                } else {
+                    LOGE("open /data/local/tmp/libvkEGL.so failed: %s", strerror(errno));
+                    enable_hack = false;
+                }
             }
-#endif
         } else {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             LOGD("⏭️ 跳过: %s (不在白名单)", package_name);

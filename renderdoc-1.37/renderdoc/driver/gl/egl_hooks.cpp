@@ -991,6 +991,13 @@ static void EGLHooked(void *handle)
   // as a hook callback this is only called while capturing
   RDCASSERT(!RenderDoc::Inst().IsReplayApp());
 
+  // 在 Android + Dobby 模式下，EGLHooked 可能在 Dobby 完成 inline hook 之前就被调用，
+  // 此时 EGL.GetProcAddress 还没通过框架填充，直接调用会导致空指针崩溃。这里先用
+  // Process::GetFunctionAddress 尝试解析 eglGetProcAddress，自行保障其可用性。
+  if(!EGL.GetProcAddress)
+    EGL.GetProcAddress =
+        (PFN_eglGetProcAddress)Process::GetFunctionAddress(handle, "eglGetProcAddress");
+
 // fetch non-hooked functions into our dispatch table
 #define EGL_FETCH(func, isext, replayrequired)                                                  \
   EGL.func = (CONCAT(PFN_egl, func))Process::GetFunctionAddress(handle, "egl" STRINGIZE(func)); \
@@ -1090,8 +1097,7 @@ void EGLHook::RegisterHooks()
 {
   if(!ShouldHookEGL())
     return;
-
-  RDCLOG("WEN 强制使用EGL Hooks");
+      
   RDCLOG("Registering EGL hooks");
 
 #if ENABLED(RDOC_WIN32)
@@ -1120,7 +1126,8 @@ void EGLHook::RegisterHooks()
   LibraryHooks::IgnoreLibrary("libGLESv3.dll");
 #endif
 
-// register EGL hooks
+// register EGL hooks 注册EGL的函数，原始函数地址，hook函数地址，在android_hook.cpp中实现
+// 类似 FunctionHook("eglGetProcAddress", (void**)&EGL.GetProcAddress,(void*)&eglGetProcAddress_renderdoc_hooked));
 #define EGL_REGISTER(func, isext, replayrequired)             \
   LibraryHooks::RegisterFunctionHook(                         \
       "libEGL" LIBSUFFIX,                                     \

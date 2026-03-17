@@ -959,6 +959,12 @@ void LibraryHooks::Refresh()
   // don't need to refresh on windows
 }
 
+void *LibraryHooks::GetOrigFunctionPtr(const char *funcName)
+{
+  // PLT/IAT hooking on Windows - raw function addresses bypass hooks naturally
+  return nullptr;
+}
+
 void LibraryHooks::ReplayInitialise()
 {
 }
