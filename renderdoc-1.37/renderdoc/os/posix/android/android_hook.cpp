@@ -26,6 +26,8 @@
 #include "common/threading.h"
 #include "hooks/hooks.h"
 #include "plthook/plthook.h"
+#include "driver/gl/gl_dispatch_table_defs.h"
+#include "driver/gl/egl_dispatch_table.h"
 
 #include <android/dlext.h>
 #include <dlfcn.h>
@@ -227,6 +229,27 @@ static std::map<rdcstr, void *> g_DobbyOrigByName;
 static rdcstr g_SelfLibraryPath;
 static rdcstr g_SelfLibraryBase;
 
+// 判断给定函数名是否出现在 RenderDoc 的 GL 支持列表中。
+static bool IsGLSupportedByRenderDoc(const char *name)
+{
+  if(name == NULL || name[0] == 0)
+    return false;
+
+  bool matched = false;
+
+#define CHECK_GL_SUPPORTED(func, aliasName)                 \
+  if(!matched && strcmp(name, STRINGIZE(aliasName)) == 0)   \
+    matched = true;
+
+  // 利用 gl_dispatch_table_defs.h 中的 ForEachSupported 宏，自动跟随 RenderDoc 的
+  // GL 支持集合，不需要手工维护一张“支持函数表”。
+  ForEachSupported(CHECK_GL_SUPPORTED);
+
+#undef CHECK_GL_SUPPORTED
+
+  return matched;
+}
+
 static rdcstr Basename(const char *path)
 {
   if(path == NULL || path[0] == 0)
@@ -262,6 +285,35 @@ static bool IsSelfModulePath(const char *path)
   return false;
 }
 
+// 判断给定函数名是否出现在 RenderDoc 的 EGL 支持列表中。
+static bool IsEGLSupportedByRenderDoc(const char *name)
+{
+  if(name == NULL || name[0] == 0)
+    return false;
+
+  bool matched = false;
+
+  // 已有 hook 实现的 EGL 函数（会有 *_renderdoc_hooked 包装）
+#define CHECK_EGL_HOOKED(func, isext, replayrequired)                    \
+  if(!matched && strcmp(name, "egl" STRINGIZE(func)) == 0)               \
+    matched = true;
+
+  EGL_HOOKED_SYMBOLS(CHECK_EGL_HOOKED)
+
+#undef CHECK_EGL_HOOKED
+
+  // 非 hook 但在 dispatch 表中的 EGL 函数，根据需要也可视为“supported”
+#define CHECK_EGL_NONHOOKED(func, isext, replayrequired)                 \
+  if(!matched && strcmp(name, "egl" STRINGIZE(func)) == 0)               \
+    matched = true;
+
+  EGL_NONHOOKED_SYMBOLS(CHECK_EGL_NONHOOKED)
+
+#undef CHECK_EGL_NONHOOKED
+
+  return matched;
+}
+
 static bool IsEGLCoreHook(const FunctionHook &hook)
 {
   // 先收缩为最小 EGL 核心集合，验证稳定性：
@@ -270,6 +322,10 @@ static bool IsEGLCoreHook(const FunctionHook &hook)
   // - 获取函数指针：eglGetProcAddress
   const char *name = hook.function.c_str();
   if(name == NULL || name[0] == 0)
+    return false;
+
+  // 先确认是 RenderDoc 已支持的 EGL 符号，避免对未知/内部入口做 inline hook。
+  if(!IsEGLSupportedByRenderDoc(name))
     return false;
 
   if(strcmp(name, "eglGetDisplay") == 0)
@@ -282,14 +338,76 @@ static bool IsEGLCoreHook(const FunctionHook &hook)
     return true;
   if(strcmp(name, "eglGetProcAddress") == 0)
     return true;
+  
+  // Phase 1: surface / window lifecycle
+  if(strcmp(name, "eglCreateWindowSurface") == 0)          return true;
+  if(strcmp(name, "eglDestroySurface") == 0)               return true;
+  if(strcmp(name, "eglCreatePlatformWindowSurface") == 0)  return true;
+  if(strcmp(name, "eglSwapBuffersWithDamageEXT") == 0)     return true;
+  if(strcmp(name, "eglSwapBuffersWithDamageKHR") == 0)     return true;
+  if(strcmp(name, "eglPostSubBufferNV") == 0)              return true;
+
+  // Phase 2: display / config / query
+  if(strcmp(name, "eglInitialize") == 0)        return true;
+  if(strcmp(name, "eglTerminate") == 0)         return true;
+  if(strcmp(name, "eglBindAPI") == 0)           return true;
+  if(strcmp(name, "eglGetConfigs") == 0)        return true;
+  if(strcmp(name, "eglChooseConfig") == 0)      return true;
+  if(strcmp(name, "eglGetConfigAttrib") == 0)   return true;
+  if(strcmp(name, "eglQuerySurface") == 0)      return true;
+  if(strcmp(name, "eglQueryContext") == 0)      return true;
+  if(strcmp(name, "eglQueryString") == 0)       return true;
+
+  return false;
+}
+
+// 选择性地对一小撮核心 GL 函数启用 Dobby inline hook。
+// 函数名必须先在 ForEachSupported 列表中出现（RenderDoc 已有 hook 实现），
+// 再根据这里的白名单决定是否交给 Dobby 处理。
+static bool IsGLCoreHook(const FunctionHook &hook)
+{
+  const char *name = hook.function.c_str();
+  if(name == NULL || name[0] == 0)
+    return false;
+
+  // 先确保是 RenderDoc 支持的 GL 函数，避免对未知/未包装的入口做 inline hook。
+  if(!IsGLSupportedByRenderDoc(name))
+    return false;
+
+  // 第一批：绘制相关
+  if(strcmp(name, "glDrawElements") == 0)            return true;
+  if(strcmp(name, "glDrawArrays") == 0)              return true;
+  if(strcmp(name, "glDrawElementsInstanced") == 0)   return true;
+  if(strcmp(name, "glDrawArraysInstanced") == 0)     return true;
+
+  // Program / Shader 相关（决定能否看到 shader / program）
+  if(strcmp(name, "glUseProgram") == 0)              return true;
+  if(strcmp(name, "glCreateShader") == 0)            return true;
+  if(strcmp(name, "glShaderSource") == 0)            return true;
+  if(strcmp(name, "glCompileShader") == 0)           return true;
+  if(strcmp(name, "glCreateProgram") == 0)           return true;
+  if(strcmp(name, "glAttachShader") == 0)            return true;
+  if(strcmp(name, "glLinkProgram") == 0)             return true;
+
+  // FBO + Renderbuffer 相关（保证 FBO 生命周期完整，避免 MarkFBO 崩溃）
+  if(strcmp(name, "glGenFramebuffers") == 0)         return true;
+  if(strcmp(name, "glDeleteFramebuffers") == 0)      return true;
+  if(strcmp(name, "glBindFramebuffer") == 0)         return true;
+  if(strcmp(name, "glFramebufferTexture2D") == 0)    return true;
+  if(strcmp(name, "glFramebufferRenderbuffer") == 0) return true;
+
+  if(strcmp(name, "glGenRenderbuffers") == 0)        return true;
+  if(strcmp(name, "glDeleteRenderbuffers") == 0)     return true;
+  if(strcmp(name, "glBindRenderbuffer") == 0)        return true;
+  if(strcmp(name, "glRenderbufferStorage") == 0)     return true;
 
   return false;
 }
 
 static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const char *owner)
 {
-  // 仅对一小撮关键 EGL 函数做 Dobby 测试，先验证稳定性，避免一次性 hook 全 GL/GLES 导致黑屏/崩溃。
-  if(!IsEGLCoreHook(hook))
+  // 仅对白名单中的 EGL/GL 函数做 Dobby inline hook，避免一次性 hook 全 GL/GLES 导致黑屏/崩溃。
+  if(!IsEGLCoreHook(hook) && !IsGLCoreHook(hook))
   {
     HOOK_DEBUG_PRINT("Skip non-core EGL/GL symbol: %s", hook.function.c_str());
     return false;

@@ -1972,7 +1972,7 @@ void WrappedOpenGL::RefreshDerivedReplacements()
 
 void WrappedOpenGL::SwapBuffers(WindowingSystem winSystem, void *windowHandle)
 {
-  RDCLOG("WEN: gl_driver SwapBuffers Success!----------");
+  // RDCLOG("WEN: gl_driver SwapBuffers Success!----------");
   if(IsBackgroundCapturing(m_State))
     RenderDoc::Inst().Tick();
 
