@@ -302,14 +302,14 @@ static bool IsEGLSupportedByRenderDoc(const char *name)
 
 #undef CHECK_EGL_HOOKED
 
-  // 非 hook 但在 dispatch 表中的 EGL 函数，根据需要也可视为“supported”
-#define CHECK_EGL_NONHOOKED(func, isext, replayrequired)                 \
-  if(!matched && strcmp(name, "egl" STRINGIZE(func)) == 0)               \
-    matched = true;
+//   // 非 hook 但在 dispatch 表中的 EGL 函数，根据需要也可视为“supported”
+// #define CHECK_EGL_NONHOOKED(func, isext, replayrequired)                 \
+//   if(!matched && strcmp(name, "egl" STRINGIZE(func)) == 0)               \
+//     matched = true;
 
-  EGL_NONHOOKED_SYMBOLS(CHECK_EGL_NONHOOKED)
+//   EGL_NONHOOKED_SYMBOLS(CHECK_EGL_NONHOOKED)
 
-#undef CHECK_EGL_NONHOOKED
+// #undef CHECK_EGL_NONHOOKED
 
   return matched;
 }
@@ -324,9 +324,10 @@ static bool IsEGLCoreHook(const FunctionHook &hook)
   if(name == NULL || name[0] == 0)
     return false;
 
-  // 先确认是 RenderDoc 已支持的 EGL 符号，避免对未知/内部入口做 inline hook。
+  // 先确认是 RenderDoc 已支持的 EGL 符号，避免对未知/内部入口做 inline hook。  
   if(!IsEGLSupportedByRenderDoc(name))
     return false;
+  
 
   if(strcmp(name, "eglGetDisplay") == 0)
     return true;
@@ -374,51 +375,509 @@ static bool IsGLCoreHook(const FunctionHook &hook)
   if(!IsGLSupportedByRenderDoc(name))
     return false;
 
-  // 第一批：绘制相关
-  if(strcmp(name, "glDrawElements") == 0)            return true;
-  if(strcmp(name, "glDrawArrays") == 0)              return true;
-  if(strcmp(name, "glDrawElementsInstanced") == 0)   return true;
-  if(strcmp(name, "glDrawArraysInstanced") == 0)     return true;
+  // ============================================================
+  // 四条链最小闭环白名单（Texture / Program / FBO / Buffer）
+  // ============================================================
 
-  // Program / Shader 相关（决定能否看到 shader / program）
-  if(strcmp(name, "glUseProgram") == 0)              return true;
-  if(strcmp(name, "glCreateShader") == 0)            return true;
-  if(strcmp(name, "glShaderSource") == 0)            return true;
-  if(strcmp(name, "glCompileShader") == 0)           return true;
-  if(strcmp(name, "glCreateProgram") == 0)           return true;
-  if(strcmp(name, "glAttachShader") == 0)            return true;
-  if(strcmp(name, "glLinkProgram") == 0)             return true;
+  // ----------------------------
+  // Draw（事件入口）
+  // ----------------------------
+  // clear 事件（很多引擎每帧开头都会调用，影响帧边界与背景）
+  if(strcmp(name, "glClear") == 0)
+    return true;
+  if(strcmp(name, "glClearColor") == 0)
+    return true;
+  if(strcmp(name, "glClearDepthf") == 0)
+    return true;
+  if(strcmp(name, "glClearDepth") == 0)
+    return true;
+  if(strcmp(name, "glClearStencil") == 0)
+    return true;
+  if(strcmp(name, "glColorMask") == 0)
+    return true;
+  if(strcmp(name, "glDepthMask") == 0)
+    return true;
+  if(strcmp(name, "glViewport") == 0)
+    return true;
+  if(strcmp(name, "glScissor") == 0)
+    return true;
 
-  // FBO + Renderbuffer 相关（保证 FBO 生命周期完整，避免 MarkFBO 崩溃）
-  if(strcmp(name, "glGenFramebuffers") == 0)         return true;
-  if(strcmp(name, "glDeleteFramebuffers") == 0)      return true;
-  if(strcmp(name, "glBindFramebuffer") == 0)         return true;
-  if(strcmp(name, "glFramebufferTexture2D") == 0)    return true;
-  if(strcmp(name, "glFramebufferRenderbuffer") == 0) return true;
+  // depth bias
+  if(strcmp(name, "glPolygonOffset") == 0)
+    return true;
 
-  if(strcmp(name, "glGenRenderbuffers") == 0)        return true;
-  if(strcmp(name, "glDeleteRenderbuffers") == 0)     return true;
-  if(strcmp(name, "glBindRenderbuffer") == 0)        return true;
-  if(strcmp(name, "glRenderbufferStorage") == 0)     return true;
+  // stencil state（不少引擎会用 Separate 变体）
+  if(strcmp(name, "glStencilMask") == 0)
+    return true;
+  if(strcmp(name, "glStencilOpSeparate") == 0)
+    return true;
+  if(strcmp(name, "glStencilFuncSeparate") == 0)
+    return true;
+
+  // fixed-function state（blend/depth/stencil enable 等）
+  // 这类状态如果缺失，可能导致事件的输出与资源绑定推断不一致（尤其是 FX pass）
+  if(strcmp(name, "glEnable") == 0)
+    return true;
+  if(strcmp(name, "glDisable") == 0)
+    return true;
+  if(strcmp(name, "glBlendFuncSeparate") == 0)
+    return true;
+  if(strcmp(name, "glBlendEquationSeparate") == 0)
+    return true;
+  if(strcmp(name, "glDepthFunc") == 0)
+    return true;
+
+  if(strcmp(name, "glDrawElements") == 0)
+    return true;
+  if(strcmp(name, "glDrawArrays") == 0)
+    return true;
+  if(strcmp(name, "glDrawElementsBaseVertex") == 0)
+    return true;
+  if(strcmp(name, "glDrawElementsInstanced") == 0)
+    return true;
+  if(strcmp(name, "glDrawArraysInstanced") == 0)
+    return true;
+  // instancing 变体（GLES3.1+ 常见）
+  if(strcmp(name, "glDrawElementsInstancedBaseVertex") == 0)
+    return true;
+  if(strcmp(name, "glDrawElementsInstancedBaseInstance") == 0)
+    return true;
+  if(strcmp(name, "glDrawArraysInstancedBaseInstance") == 0)
+    return true;
+  if(strcmp(name, "glDrawElementsInstancedBaseVertexBaseInstance") == 0)
+    return true;
+
+  // ----------------------------
+  // Texture lifecycle（闭环）
+  // ----------------------------
+  if(strcmp(name, "glGenTextures") == 0)
+    return true;
+  if(strcmp(name, "glDeleteTextures") == 0)
+    return true;
+  if(strcmp(name, "glActiveTexture") == 0)
+    return true;
+  if(strcmp(name, "glBindTexture") == 0)
+    return true;
+
+  // 像素存储状态会影响 tex upload（row alignment/stride），缺失会导致部分贴图解析异常
+  if(strcmp(name, "glPixelStorei") == 0)
+    return true;
+  if(strcmp(name, "glPixelStoref") == 0)
+    return true;
+
+  if(strcmp(name, "glTexImage2D") == 0)
+    return true;
+  if(strcmp(name, "glTexSubImage2D") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage2D") == 0)
+    return true;
+  if(strcmp(name, "glCompressedTexImage2D") == 0)
+    return true;
+  if(strcmp(name, "glCompressedTexSubImage2D") == 0)
+    return true;
+  if(strcmp(name, "glGenerateMipmap") == 0)
+    return true;
+
+  // 3D / array 纹理（Unity/GLES3 常见：volume/texture array）
+  if(strcmp(name, "glTexImage3D") == 0)
+    return true;
+  if(strcmp(name, "glTexSubImage3D") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage3D") == 0)
+    return true;
+  if(strcmp(name, "glCompressedTexImage3D") == 0)
+    return true;
+  if(strcmp(name, "glCompressedTexSubImage3D") == 0)
+    return true;
+
+  // 多重采样纹理/附件（MSAA RT 经常走这条）
+  if(strcmp(name, "glTexImage2DMultisample") == 0)
+    return true;
+  if(strcmp(name, "glTexImage3DMultisample") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage2DMultisample") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage3DMultisample") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage3DMultisampleOES") == 0)
+    return true;
+
+  // Copy/Blit 到纹理（部分后处理/截图路径会用）
+  if(strcmp(name, "glCopyTexImage2D") == 0)
+    return true;
+  if(strcmp(name, "glCopyTexSubImage2D") == 0)
+    return true;
+  if(strcmp(name, "glCopyTexSubImage3D") == 0)
+    return true;
+  if(strcmp(name, "glCopyTexSubImage3DOES") == 0)
+    return true;
+  if(strcmp(name, "glCopyImageSubData") == 0)
+    return true;
+  if(strcmp(name, "glCopyImageSubDataEXT") == 0)
+    return true;
+  if(strcmp(name, "glCopyImageSubDataOES") == 0)
+    return true;
+
+  // buffer texture / view（部分驱动/引擎会用来做资源别名）
+  if(strcmp(name, "glTexBuffer") == 0)
+    return true;
+  if(strcmp(name, "glTexBufferRange") == 0)
+    return true;
+  if(strcmp(name, "glTextureView") == 0)
+    return true;
+  if(strcmp(name, "glTextureViewOES") == 0)
+    return true;
+  if(strcmp(name, "glTextureViewEXT") == 0)
+    return true;
+
+  if(strcmp(name, "glTexParameteri") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterf") == 0)
+    return true;
+  if(strcmp(name, "glTexParameteriv") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterfv") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIiv") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIuiv") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIivEXT") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIuivEXT") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIivOES") == 0)
+    return true;
+  if(strcmp(name, "glTexParameterIuivOES") == 0)
+    return true;
+
+  // Sampler objects（Unity 有时会用 sampler 分离状态）
+  if(strcmp(name, "glGenSamplers") == 0)
+    return true;
+  if(strcmp(name, "glDeleteSamplers") == 0)
+    return true;
+  if(strcmp(name, "glBindSampler") == 0)
+    return true;
+  if(strcmp(name, "glSamplerParameteri") == 0)
+    return true;
+  if(strcmp(name, "glSamplerParameterf") == 0)
+    return true;
+  if(strcmp(name, "glSamplerParameteriv") == 0)
+    return true;
+  if(strcmp(name, "glSamplerParameterfv") == 0)
+    return true;
+
+  // Android 外部纹理 / EGLImage
+  if(strcmp(name, "glEGLImageTargetTexture2DOES") == 0)
+    return true;
+  if(strcmp(name, "glEGLImageTargetRenderbufferStorageOES") == 0)
+    return true;
+
+  // ----------------------------
+  // Program / Shader（传统 GLSL）
+  // ----------------------------
+  if(strcmp(name, "glCreateShader") == 0)
+    return true;
+  if(strcmp(name, "glShaderSource") == 0)
+    return true;
+  if(strcmp(name, "glCompileShader") == 0)
+    return true;
+  if(strcmp(name, "glDeleteShader") == 0)
+    return true;
+
+  if(strcmp(name, "glCreateProgram") == 0)
+    return true;
+  if(strcmp(name, "glAttachShader") == 0)
+    return true;
+  if(strcmp(name, "glLinkProgram") == 0)
+    return true;
+  if(strcmp(name, "glUseProgram") == 0)
+    return true;
+  if(strcmp(name, "glDeleteProgram") == 0)
+    return true;
+
+  // Uniform updates（材质参数/采样器绑定/矩阵等，缺失会导致贴图或 shader 状态不完整）
+  if(strcmp(name, "glGetUniformLocation") == 0)
+    return true;
+
+  // sampler 常用
+  if(strcmp(name, "glUniform1i") == 0)
+    return true;
+  if(strcmp(name, "glUniform1iv") == 0)
+    return true;
+
+  // 标量/向量（常见）
+  if(strcmp(name, "glUniform1f") == 0)
+    return true;
+  if(strcmp(name, "glUniform2f") == 0)
+    return true;
+  if(strcmp(name, "glUniform3f") == 0)
+    return true;
+  if(strcmp(name, "glUniform4f") == 0)
+    return true;
+  if(strcmp(name, "glUniform1fv") == 0)
+    return true;
+  if(strcmp(name, "glUniform2fv") == 0)
+    return true;
+  if(strcmp(name, "glUniform3fv") == 0)
+    return true;
+  if(strcmp(name, "glUniform4fv") == 0)
+    return true;
+
+  // integer uniforms
+  if(strcmp(name, "glUniform1ui") == 0)
+    return true;
+  if(strcmp(name, "glUniform1uiv") == 0)
+    return true;
+  if(strcmp(name, "glUniform2i") == 0)
+    return true;
+  if(strcmp(name, "glUniform3i") == 0)
+    return true;
+  if(strcmp(name, "glUniform4i") == 0)
+    return true;
+  if(strcmp(name, "glUniform2iv") == 0)
+    return true;
+  if(strcmp(name, "glUniform3iv") == 0)
+    return true;
+  if(strcmp(name, "glUniform4iv") == 0)
+    return true;
+  if(strcmp(name, "glUniform2ui") == 0)
+    return true;
+  if(strcmp(name, "glUniform3ui") == 0)
+    return true;
+  if(strcmp(name, "glUniform4ui") == 0)
+    return true;
+  if(strcmp(name, "glUniform2uiv") == 0)
+    return true;
+  if(strcmp(name, "glUniform3uiv") == 0)
+    return true;
+  if(strcmp(name, "glUniform4uiv") == 0)
+    return true;
+
+  // 矩阵（transform/骨骼/UV 变换）
+  if(strcmp(name, "glUniformMatrix2fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix3fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix4fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix2x3fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix3x2fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix2x4fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix4x2fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix3x4fv") == 0)
+    return true;
+  if(strcmp(name, "glUniformMatrix4x3fv") == 0)
+    return true;
+
+  // Program binary / pipeline（Unity 可能走）
+  if(strcmp(name, "glProgramBinary") == 0)
+    return true;
+  if(strcmp(name, "glGetProgramBinary") == 0)
+    return true;
+  if(strcmp(name, "glBindProgramPipeline") == 0)
+    return true;
+  if(strcmp(name, "glUseProgramStages") == 0)
+    return true;
+  if(strcmp(name, "glCreateShaderProgramv") == 0)
+    return true;
+  if(strcmp(name, "glCreateShaderProgramvEXT") == 0)
+    return true;
+  if(strcmp(name, "glProgramParameteri") == 0)
+    return true;
+
+  // ----------------------------
+  // FBO / RBO（闭环）
+  // ----------------------------
+  if(strcmp(name, "glGenFramebuffers") == 0)
+    return true;
+  if(strcmp(name, "glDeleteFramebuffers") == 0)
+    return true;
+  if(strcmp(name, "glBindFramebuffer") == 0)
+    return true;
+  // tile-based GPU 常用 discard/invalidations（影响附件生命周期与脏资源判定）
+  if(strcmp(name, "glInvalidateFramebuffer") == 0)
+    return true;
+  if(strcmp(name, "glInvalidateSubFramebuffer") == 0)
+    return true;
+  if(strcmp(name, "glFramebufferTexture2D") == 0)
+    return true;
+  if(strcmp(name, "glFramebufferRenderbuffer") == 0)
+    return true;
+  if(strcmp(name, "glCheckFramebufferStatus") == 0)
+    return true;
+
+  if(strcmp(name, "glGenRenderbuffers") == 0)
+    return true;
+  if(strcmp(name, "glDeleteRenderbuffers") == 0)
+    return true;
+  if(strcmp(name, "glBindRenderbuffer") == 0)
+    return true;
+  if(strcmp(name, "glRenderbufferStorage") == 0)
+    return true;
+  if(strcmp(name, "glRenderbufferStorageMultisample") == 0)
+    return true;
+
+  // ----------------------------
+  // Buffer + Vertex input（闭环）
+  // ----------------------------
+  if(strcmp(name, "glGenBuffers") == 0)
+    return true;
+  if(strcmp(name, "glDeleteBuffers") == 0)
+    return true;
+  if(strcmp(name, "glBindBuffer") == 0)
+    return true;
+  if(strcmp(name, "glBufferData") == 0)
+    return true;
+  if(strcmp(name, "glBufferSubData") == 0)
+    return true;
+
+  // 顶点输入
+  if(strcmp(name, "glVertexAttribPointer") == 0)
+    return true;
+  if(strcmp(name, "glEnableVertexAttribArray") == 0)
+    return true;
+  if(strcmp(name, "glDisableVertexAttribArray") == 0)
+    return true;
+  // instancing attribute divisor（核心）
+  if(strcmp(name, "glVertexAttribDivisor") == 0)
+    return true;
+  if(strcmp(name, "glVertexAttribDivisorEXT") == 0)
+    return true;
+  if(strcmp(name, "glVertexAttribDivisorANGLE") == 0)
+    return true;
+
+  // VAO（GLES3 常用）
+  if(strcmp(name, "glGenVertexArrays") == 0)
+    return true;
+  if(strcmp(name, "glBindVertexArray") == 0)
+    return true;
+  if(strcmp(name, "glDeleteVertexArrays") == 0)
+    return true;
+
+  // 映射（常见更新路径）
+  if(strcmp(name, "glMapBufferRange") == 0)
+    return true;
+  if(strcmp(name, "glFlushMappedBufferRange") == 0)
+    return true;
+  if(strcmp(name, "glUnmapBuffer") == 0)
+    return true;
+
+  // UBO/SSBO 绑定（让 shader 资源更完整）
+  if(strcmp(name, "glBindBufferBase") == 0)
+    return true;
+  if(strcmp(name, "glBindBufferRange") == 0)
+    return true;
+  if(strcmp(name, "glUniformBlockBinding") == 0)
+    return true;
+
+  return false;
+}
+
+// 仅对少量关键符号打印日志，避免遍历数千 hook 时刷爆 logcat。
+static bool ShouldLogDobbySymbol(const char *name)
+{
+  if(name == NULL || name[0] == 0)
+    return false;
+
+  // EGL 关键入口
+  if(strcmp(name, "eglGetProcAddress") == 0)
+    return true;
+  if(strcmp(name, "eglSwapBuffers") == 0)
+    return true;
+  if(strcmp(name, "eglMakeCurrent") == 0)
+    return true;
+
+  // 传统 shader/program 路径
+  if(strcmp(name, "glCreateShader") == 0)
+    return true;
+  if(strcmp(name, "glShaderSource") == 0)
+    return true;
+  if(strcmp(name, "glCompileShader") == 0)
+    return true;
+  if(strcmp(name, "glCreateProgram") == 0)
+    return true;
+  if(strcmp(name, "glAttachShader") == 0)
+    return true;
+  if(strcmp(name, "glLinkProgram") == 0)
+    return true;
+  if(strcmp(name, "glUseProgram") == 0)
+    return true;
+
+  // program binary / pipeline 路径（Unity 可能走这条）
+  if(strcmp(name, "glProgramBinary") == 0)
+    return true;
+  if(strcmp(name, "glGetProgramBinary") == 0)
+    return true;
+  if(strcmp(name, "glBindProgramPipeline") == 0)
+    return true;
+  if(strcmp(name, "glUseProgramStages") == 0)
+    return true;
+  if(strcmp(name, "glCreateShaderProgramv") == 0)
+    return true;
+  if(strcmp(name, "glCreateShaderProgramvEXT") == 0)
+    return true;
+
+  // 纹理上传/存储（纹理资源缺失排查）
+  if(strcmp(name, "glBindTexture") == 0)
+    return true;
+  if(strcmp(name, "glTexImage2D") == 0)
+    return true;
+  if(strcmp(name, "glTexSubImage2D") == 0)
+    return true;
+  if(strcmp(name, "glTexStorage2D") == 0)
+    return true;
+  if(strcmp(name, "glCompressedTexImage2D") == 0)
+    return true;
+  if(strcmp(name, "glGenerateMipmap") == 0)
+    return true;
+
+  // EGLImage / external texture（Android 常见资源路径）
+  if(strcmp(name, "glEGLImageTargetTexture2DOES") == 0)
+    return true;
+  if(strcmp(name, "glEGLImageTargetRenderbufferStorageOES") == 0)
+    return true;
+
+  // draw（确认 draw 是否进入 renderdoc wrapper）
+  if(strcmp(name, "glDrawElements") == 0)
+    return true;
+  if(strcmp(name, "glDrawArrays") == 0)
+    return true;
 
   return false;
 }
 
 static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const char *owner)
 {
+  const char *name = hook.function.c_str();
+  const bool logThis = ShouldLogDobbySymbol(name);
+
+  // 原始全量 Enter 日志会在遍历数千符号时刷爆 logcat，导致关键符号日志被覆盖。
+  // RDCLOG("Enter: EGL/GL symbol: %s", hook.function.c_str());
+  if(logThis)
+    RDCLOG("DobbyHook candidate: %s (owner=%s)", name, owner ? owner : "(null)");
   // 仅对白名单中的 EGL/GL 函数做 Dobby inline hook，避免一次性 hook 全 GL/GLES 导致黑屏/崩溃。
   if(!IsEGLCoreHook(hook) && !IsGLCoreHook(hook))
   {
-    HOOK_DEBUG_PRINT("Skip non-core EGL/GL symbol: %s", hook.function.c_str());
+    if(logThis)
+      RDCLOG("Skip non-core EGL/GL symbol: %s", name);
     return false;
   }
 
   if(handle == NULL || hook.hook == NULL || hook.function.empty())
     return false;
 
-  void *target = xdl_sym(handle, hook.function.c_str(), NULL);
+  void *target = xdl_sym(handle, name, NULL);
   if(target == NULL)
+  {
+    if(logThis)
+      RDCLOG("DobbyHook skip: %s not found in %s", name, owner ? owner : "(null)");
     return false;
+  }
 
   {
     SCOPED_LOCK(g_DobbyHookLock);
@@ -437,8 +896,9 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   Dl_info info = {};
   if(dladdr(target, &info) == 0 || info.dli_fname == NULL)
   {
-    RDCWARN("Skip Dobby hook for %s (owner=%s): dladdr failed for target=%p", hook.function.c_str(),
-            owner ? owner : "(null)", target);
+    if(logThis)
+      RDCWARN("Skip Dobby hook for %s (owner=%s): dladdr failed for target=%p", name,
+              owner ? owner : "(null)", target);
     return false;
   }
 
@@ -446,8 +906,9 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   // 若命中 self-export（例如 eglSwapBuffers wrapper），会形成递归并在渲染线程栈爆崩溃。
   if(IsSelfModulePath(info.dli_fname))
   {
-    RDCWARN("Skip self-export symbol hook: %s owner=%s target=%p module=%s", hook.function.c_str(),
-            owner ? owner : "(null)", target, info.dli_fname);
+    if(logThis)
+      RDCWARN("Skip self-export symbol hook: %s owner=%s target=%p module=%s", name,
+              owner ? owner : "(null)", target, info.dli_fname);
     return false;
   }
 
@@ -455,8 +916,8 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   int rc = DobbyHook(target, hook.hook, (dobby_dummy_func_t *)&trampoline);
   if(rc != 0)
   {
-    RDCERR("DobbyHook failed: %s in %s target=%p hook=%p rc=%d", hook.function.c_str(), owner, target,
-           hook.hook, rc);
+    if(logThis)
+      RDCERR("DobbyHook failed: %s in %s target=%p hook=%p rc=%d", name, owner, target, hook.hook, rc);
     return false;
   }
 
@@ -470,8 +931,9 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   if(hook.orig && *hook.orig == NULL)
     *hook.orig = trampoline;
 
-  RDCLOG("DobbyHook success: %s in %s target=%p hook=%p tramp=%p", hook.function.c_str(), owner,
-         target, hook.hook, trampoline);
+  if(logThis)
+    RDCLOG("DobbyHook success: %s in %s target=%p hook=%p tramp=%p", name, owner, target, hook.hook,
+           trampoline);
   return true;
 }
 
