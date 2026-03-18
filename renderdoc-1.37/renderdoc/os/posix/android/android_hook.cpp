@@ -854,17 +854,12 @@ static bool ShouldLogDobbySymbol(const char *name)
 static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const char *owner)
 {
   const char *name = hook.function.c_str();
-  const bool logThis = ShouldLogDobbySymbol(name);
 
-  // 原始全量 Enter 日志会在遍历数千符号时刷爆 logcat，导致关键符号日志被覆盖。
-  // RDCLOG("Enter: EGL/GL symbol: %s", hook.function.c_str());
-  if(logThis)
-    RDCLOG("DobbyHook candidate: %s (owner=%s)", name, owner ? owner : "(null)");
+  // RDCLOG("DobbyHook candidate: %s (owner=%s)", name, owner ? owner : "(null)");
   // 仅对白名单中的 EGL/GL 函数做 Dobby inline hook，避免一次性 hook 全 GL/GLES 导致黑屏/崩溃。
   if(!IsEGLCoreHook(hook) && !IsGLCoreHook(hook))
   {
-    if(logThis)
-      RDCLOG("Skip non-core EGL/GL symbol: %s", name);
+    RDCLOG("Skip non-core EGL/GL symbol: %s", name);
     return false;
   }
 
@@ -874,8 +869,7 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   void *target = xdl_sym(handle, name, NULL);
   if(target == NULL)
   {
-    if(logThis)
-      RDCLOG("DobbyHook skip: %s not found in %s", name, owner ? owner : "(null)");
+    RDCLOG("DobbyHook skip: %s not found in %s", name, owner ? owner : "(null)");
     return false;
   }
 
@@ -896,9 +890,8 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   Dl_info info = {};
   if(dladdr(target, &info) == 0 || info.dli_fname == NULL)
   {
-    if(logThis)
-      RDCWARN("Skip Dobby hook for %s (owner=%s): dladdr failed for target=%p", name,
-              owner ? owner : "(null)", target);
+    RDCWARN("Skip Dobby hook for %s (owner=%s): dladdr failed for target=%p", name,
+            owner ? owner : "(null)", target);
     return false;
   }
 
@@ -906,9 +899,8 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   // 若命中 self-export（例如 eglSwapBuffers wrapper），会形成递归并在渲染线程栈爆崩溃。
   if(IsSelfModulePath(info.dli_fname))
   {
-    if(logThis)
-      RDCWARN("Skip self-export symbol hook: %s owner=%s target=%p module=%s", name,
-              owner ? owner : "(null)", target, info.dli_fname);
+    RDCWARN("Skip self-export symbol hook: %s owner=%s target=%p module=%s", name,
+            owner ? owner : "(null)", target, info.dli_fname);
     return false;
   }
 
@@ -916,8 +908,7 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   int rc = DobbyHook(target, hook.hook, (dobby_dummy_func_t *)&trampoline);
   if(rc != 0)
   {
-    if(logThis)
-      RDCERR("DobbyHook failed: %s in %s target=%p hook=%p rc=%d", name, owner, target, hook.hook, rc);
+    RDCERR("DobbyHook failed: %s in %s target=%p hook=%p rc=%d", name, owner, target, hook.hook, rc);
     return false;
   }
 
@@ -931,9 +922,8 @@ static bool DobbyHookOneSymbol(void *handle, const FunctionHook &hook, const cha
   if(hook.orig && *hook.orig == NULL)
     *hook.orig = trampoline;
 
-  if(logThis)
-    RDCLOG("DobbyHook success: %s in %s target=%p hook=%p tramp=%p", name, owner, target, hook.hook,
-           trampoline);
+  RDCLOG("DobbyHook success: %s in %s target=%p hook=%p tramp=%p", name, owner, target, hook.hook,
+         trampoline);
   return true;
 }
 
